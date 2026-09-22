@@ -1,10 +1,14 @@
+from pathlib import Path
+import tempfile
+
 from dotenv import load_dotenv
 from vision_agents.core import Agent, Runner, User
 from vision_agents.core.agents import AgentLauncher
 from vision_agents.core.instructions import Instructions
+from vision_agents.core.utils.audio_filter import FirstSpeakerWinsFilter
 from vision_agents.plugins import getstream, gemini
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env.local", override=True)
 
 
 INSTRUCTIONS = (
@@ -14,6 +18,7 @@ INSTRUCTIONS = (
 )
 
 AGENT_USER_ID = "ai-teacher"
+VAD_MODEL_DIR = Path(tempfile.gettempdir()) / "lingua-vision-agent-vad"
 
 
 async def create_agent(**kwargs) -> Agent:
@@ -22,6 +27,9 @@ async def create_agent(**kwargs) -> Agent:
         agent_user=User(name="AI Teacher", id=AGENT_USER_ID),
         instructions=INSTRUCTIONS,
         llm=gemini.Realtime(),
+        multi_speaker_filter=FirstSpeakerWinsFilter(
+            model_dir=str(VAD_MODEL_DIR),
+        ),
     )
 
 

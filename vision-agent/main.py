@@ -1,10 +1,14 @@
 import os
+import tempfile
 from typing import Optional
 
 from dotenv import load_dotenv
 
-# Load Stream keys from the parent repo .env
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+# Load shared app and Stream keys from the repository-level environment file.
+load_dotenv(
+    os.path.join(os.path.dirname(__file__), "..", ".env.local"),
+    override=True,
+)
 # Local .env adds OPENAI_API_KEY and can override any key
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
@@ -12,6 +16,7 @@ from getstream.models import MemberRequest  # noqa: E402
 from openai.types.realtime.realtime_transcription_session_audio_input_turn_detection_param import ServerVad  # noqa: E402
 from vision_agents.core import Agent, AgentLauncher, User, Runner  # noqa: E402
 from vision_agents.core.instructions import Instructions  # noqa: E402
+from vision_agents.core.utils.audio_filter import FirstSpeakerWinsFilter  # noqa: E402
 from vision_agents.core.llm.events import (  # noqa: E402
     RealtimeAgentSpeechTranscriptionEvent,
     RealtimeUserSpeechTranscriptionEvent,
@@ -19,6 +24,7 @@ from vision_agents.core.llm.events import (  # noqa: E402
 from vision_agents.plugins import getstream, openai  # noqa: E402
 
 AGENT_USER_ID = "ai-teacher"
+VAD_MODEL_DIR = os.path.join(tempfile.gettempdir(), "lingua-vision-agent-vad")
 
 LANGUAGE_NAMES: dict[str, str] = {
     "en": "English",
@@ -85,6 +91,7 @@ async def create_agent(**kwargs) -> Agent:
         ),
         agent_user=User(name="AI Teacher", id=AGENT_USER_ID),
         instructions=DEFAULT_SYSTEM_PROMPT,
+        multi_speaker_filter=FirstSpeakerWinsFilter(model_dir=VAD_MODEL_DIR),
     )
 
 

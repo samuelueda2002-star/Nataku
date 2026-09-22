@@ -10,7 +10,7 @@ Generated with `uvx vision-agents init`. See the docs at <https://visionagents.a
    uv python install 3.12
    ```
 
-2. Fill in `.env` with credentials from [Google AI Studio](https://aistudio.google.com/) and [Stream](https://getstream.io/).
+2. Add the Google and Stream credentials to the repository-level `.env.local` file.
 3. Install dependencies:
 
    ```bash
