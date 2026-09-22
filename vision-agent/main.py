@@ -1,6 +1,6 @@
 import os
 import tempfile
-from typing import Optional
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 
@@ -17,10 +17,6 @@ from openai.types.realtime.realtime_transcription_session_audio_input_turn_detec
 from vision_agents.core import Agent, AgentLauncher, User, Runner  # noqa: E402
 from vision_agents.core.instructions import Instructions  # noqa: E402
 from vision_agents.core.utils.audio_filter import FirstSpeakerWinsFilter  # noqa: E402
-from vision_agents.core.llm.events import (  # noqa: E402
-    RealtimeAgentSpeechTranscriptionEvent,
-    RealtimeUserSpeechTranscriptionEvent,
-)
 from vision_agents.plugins import getstream, openai  # noqa: E402
 
 AGENT_USER_ID = "ai-teacher"
@@ -65,6 +61,97 @@ def _language_name_from_call_id(call_id: str) -> Optional[str]:
     return None
 
 
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _format_vocabulary(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+
+    entries: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            entries.append(item.strip())
+            continue
+        if not isinstance(item, dict):
+            continue
+
+        word = item.get("word")
+        if not isinstance(word, str) or not word.strip():
+            continue
+        details = [
+            item.get("translation") if isinstance(item.get("translation"), str) else None,
+            (
+                f"pronunciation: {item['pronunciation']}"
+                if isinstance(item.get("pronunciation"), str)
+                else None
+            ),
+        ]
+        suffix = "; ".join(detail for detail in details if detail)
+        entries.append(f"{word.strip()}: {suffix}" if suffix else word.strip())
+    return entries
+
+
+def _format_phrases(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+
+    entries: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            entries.append(item.strip())
+            continue
+        if not isinstance(item, dict):
+            continue
+
+        text = item.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        details = [
+            item.get("translation") if isinstance(item.get("translation"), str) else None,
+            (
+                f"pronunciation: {item['pronunciation']}"
+                if isinstance(item.get("pronunciation"), str)
+                else None
+            ),
+        ]
+        suffix = "; ".join(detail for detail in details if detail)
+        entries.append(f"{text.strip()} ({suffix})" if suffix else text.strip())
+    return entries
+
+
+def _lesson_instructions(custom: dict[str, Any], language_name: str) -> str:
+    lesson_title = custom.get("lesson_title")
+    lesson_description = custom.get("lesson_description")
+    goals = _string_list(custom.get("goals"))
+    vocabulary = _format_vocabulary(custom.get("vocabulary"))
+    phrases = _format_phrases(custom.get("phrases"))
+    topics = _string_list(custom.get("topics"))
+
+    sections = [f"Target language: {language_name}"]
+    if isinstance(lesson_title, str) and lesson_title.strip():
+        sections.append(f"Selected lesson: {lesson_title.strip()}")
+    if isinstance(lesson_description, str) and lesson_description.strip():
+        sections.append(f"Lesson description: {lesson_description.strip()}")
+    if goals:
+        sections.append("Lesson goals:\n- " + "\n- ".join(goals))
+    if vocabulary:
+        sections.append("Allowed vocabulary:\n- " + "\n- ".join(vocabulary))
+    if phrases:
+        sections.append("Practice phrases:\n- " + "\n- ".join(phrases))
+    if topics:
+        sections.append("Lesson topics:\n- " + "\n- ".join(topics))
+
+    sections.append(
+        "Use this lesson context throughout the call. Teach toward the goals and "
+        "stay within the listed vocabulary, phrases, and topics."
+    )
+    return "\n\n".join(sections)
+
+
 async def create_agent(**kwargs) -> Agent:
     return Agent(
         edge=getstream.Edge(),
@@ -99,18 +186,18 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
     call = await agent.create_call(call_type, call_id)
 
     # Read lesson context packed into the call's custom data by the mobile app
-    custom: dict = {}
+    custom: dict[str, Any] = {}
     try:
         resp = await call.get()
         custom = resp.data.call.custom or {}
     except Exception as e:
         print(f"[agent] Warning: could not fetch call custom data: {e}")
 
-    system_prompt  = custom.get("system_prompt") or DEFAULT_SYSTEM_PROMPT
-    intro_message  = custom.get("intro_message")
-    language_code  = custom.get("language") or ""
-    lesson_title   = custom.get("lesson_title") or ""
-    learner_name   = custom.get("user_name") or "A student"
+    system_prompt = custom.get("system_prompt") or DEFAULT_SYSTEM_PROMPT
+    intro_message = custom.get("intro_message")
+    language_code = custom.get("language") or ""
+    lesson_title = custom.get("lesson_title") or ""
+    learner_name = custom.get("user_name") or "A student"
     language_name = (
         custom.get("language_name")
         or LANGUAGE_NAMES.get(language_code)
@@ -118,57 +205,28 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
         or "language"
     )
 
-    # Apply lesson-specific instructions before joining so the Realtime LLM receives them
-    agent.instructions = Instructions(input_text=system_prompt)
+    # Apply every lesson field before joining so the Realtime LLM receives the
+    # selected language, goals, vocabulary, phrases, topics, and teacher prompt.
+    lesson_context = _lesson_instructions(custom, language_name)
+    agent.instructions = Instructions(
+        input_text=f"{system_prompt}\n\n{lesson_context}"
+    )
 
-    # Grant admin role + go live so the agent can publish audio
+    # audio_room starts backstage. The agent must be an admin and the room must
+    # be live before regular audio can flow, so treat both operations as required.
     try:
         await call.update_call_members(
             update_members=[MemberRequest(user_id=AGENT_USER_ID, role="admin")]
         )
     except Exception as e:
-        print(f"[agent] Warning: could not set admin role: {e}")
+        print(f"[agent] Could not grant the admin role: {e}")
+        raise
 
     try:
         await call.go_live()
     except Exception as e:
-        print(f"[agent] Warning: go_live failed (expected for default call type): {e}")
-
-    # Accumulate transcript deltas and forward them as Stream custom events so the
-    # mobile app can display real-time captions word-by-word as speech is generated.
-    partial_agent: list[str] = []
-    partial_user: list[str] = []
-
-    async def on_transcript_event(event) -> None:
-        if isinstance(event, RealtimeAgentSpeechTranscriptionEvent):
-            if event.mode == "delta" and event.text:
-                partial_agent.append(event.text)
-                try:
-                    await agent.send_custom_event({
-                        "type": "transcript_partial",
-                        "speaker": "agent",
-                        "text": "".join(partial_agent),
-                    })
-                except Exception as e:
-                    print(f"[agent] send_custom_event error: {e}")
-            elif event.mode == "final":
-                partial_agent.clear()
-
-        elif isinstance(event, RealtimeUserSpeechTranscriptionEvent):
-            if event.mode == "delta" and event.text:
-                partial_user.append(event.text)
-                try:
-                    await agent.send_custom_event({
-                        "type": "transcript_partial",
-                        "speaker": "user",
-                        "text": "".join(partial_user),
-                    })
-                except Exception as e:
-                    print(f"[agent] send_custom_event error: {e}")
-            elif event.mode == "final":
-                partial_user.clear()
-
-    agent.subscribe(on_transcript_event)
+        print(f"[agent] Could not take the audio room live: {e}")
+        raise
 
     async with agent.join(call):
         # Wait for the student to join (returns immediately if already present)

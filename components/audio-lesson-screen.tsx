@@ -189,7 +189,6 @@ export function AudioLessonScreen({ lessonId }: { lessonId?: string }) {
       >
         <LessonHeader
           agentStatus={agentStatus}
-          callStatus={callStatus}
           languageName={languageName}
           lessonTitle={lesson.title}
           onBack={() => void handleBack()}
@@ -229,20 +228,18 @@ export function AudioLessonScreen({ lessonId }: { lessonId?: string }) {
 
 function LessonHeader({
   agentStatus,
-  callStatus,
   languageName,
   lessonTitle,
   onBack,
   streak,
 }: {
   agentStatus: AgentStatus;
-  callStatus: AudioCallStatus;
   languageName: string;
   lessonTitle: string;
   onBack: () => void;
   streak: number;
 }) {
-  const displayStatus = getDisplayStatus(callStatus, agentStatus);
+  const displayStatus = getDisplayStatus(agentStatus);
 
   return (
     <View className="h-[106px] flex-row items-center px-5">
@@ -816,40 +813,28 @@ function getTeacherResponse(
 }
 
 function getDisplayStatus(
-  callStatus: AudioCallStatus,
   agentStatus: AgentStatus,
 ): { color: string; label: string } {
-  if (callStatus === "joined") {
-    const statuses: Record<AgentStatus, { color: string; label: string }> = {
-      connected: { color: colors.semantic.success, label: "Joined" },
-      connecting: {
-        color: colors.semantic.warning,
-        label: "Joined · Teacher connecting",
-      },
-      failed: {
-        color: colors.semantic.error,
-        label: "Joined · Teacher unavailable",
-      },
-      idle: {
-        color: colors.neutral.textSecondary,
-        label: "Joined · Setting up",
-      },
-    };
-
-    return statuses[agentStatus];
-  }
-
-  const statuses: Record<AudioCallStatus, { color: string; label: string }> = {
-    connecting: { color: colors.semantic.warning, label: "Connecting" },
-    ended: { color: colors.neutral.textSecondary, label: "Session ended" },
-    ending: { color: colors.semantic.warning, label: "Ending" },
-    error: { color: colors.semantic.error, label: "Connection failed" },
-    idle: { color: colors.semantic.success, label: "Ready to call" },
-    joined: { color: colors.semantic.success, label: "Online" },
-    loading: { color: colors.semantic.warning, label: "Preparing" },
+  const statuses: Record<AgentStatus, { color: string; label: string }> = {
+    connected: {
+      color: colors.semantic.success,
+      label: "Teacher connected",
+    },
+    connecting: {
+      color: colors.semantic.warning,
+      label: "Teacher connecting",
+    },
+    failed: {
+      color: colors.semantic.error,
+      label: "Teacher failed",
+    },
+    idle: {
+      color: colors.neutral.textSecondary,
+      label: "Teacher idle",
+    },
   };
 
-  return statuses[callStatus];
+  return statuses[agentStatus];
 }
 
 function getLearnerCallStatus(

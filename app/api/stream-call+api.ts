@@ -7,7 +7,7 @@ import {
 } from "@/lib/server/streamAuth";
 import { LanguageCode } from "@/types/learning";
 
-const CALL_TYPE = "default";
+const CALL_TYPE = "audio_room";
 
 type CreateCallBody = {
   language?: unknown;
@@ -159,13 +159,24 @@ export async function POST(request: Request): Promise<Response> {
               user_image: userImage,
               lesson_id: lesson.id,
               lesson_title: lesson.title,
+              lesson_description: lesson.description,
               language: language.code,
               language_name: language.name,
               goals: lesson.goals.map((goal) => goal.description),
               vocabulary: lesson.vocabulary.map(
-                (item) => `${item.word}: ${item.translation}`,
+                ({ pronunciation, translation, word }) => ({
+                  pronunciation,
+                  translation,
+                  word,
+                }),
               ),
-              phrases: lesson.phrases.map((phrase) => phrase.text),
+              phrases: lesson.phrases.map(
+                ({ pronunciation, text, translation }) => ({
+                  pronunciation,
+                  text,
+                  translation,
+                }),
+              ),
               topics: lesson.aiTeacherPrompt.topics,
               system_prompt: lesson.aiTeacherPrompt.systemPrompt,
               intro_message: lesson.aiTeacherPrompt.introMessage,

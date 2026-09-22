@@ -7,6 +7,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Lesson, LanguageCode } from "@/types/learning";
 
+const AGENT_USER_ID = "ai-teacher";
+const AGENT_CONNECTION_TIMEOUT_MS = 20_000;
+
 export type AudioCallStatus =
   | "idle"
   | "loading"
@@ -60,17 +63,25 @@ export function useAudioLessonCall({
   const clientRef = useRef<StreamVideoClient | null>(null);
   const agentSessionRef = useRef<string | null>(null);
   const activeCallIdRef = useRef<string | null>(null);
+  const activeCallTypeRef = useRef<string | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const callEndedUnsubscribeRef = useRef<(() => void) | null>(null);
+  const agentJoinedUnsubscribeRef = useRef<(() => void) | null>(null);
+  const agentLeftUnsubscribeRef = useRef<(() => void) | null>(null);
+  const agentConnectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const clerkTokenRef = useRef<string | null>(null);
   const inFlightRef = useRef(false);
   const isEndingRef = useRef(false);
   const mountedRef = useRef(true);
   const operationIdRef = useRef(0);
+  const agentAttemptIdRef = useRef(0);
 
   const stopAgentSession = useCallback(
     async (callId: string | null, sessionId: string | null) => {
-      const clerkToken = clerkTokenRef.current;
+      const clerkToken =
+        (await getToken().catch(() => null)) ?? clerkTokenRef.current;
       if (!callId || !sessionId || !clerkToken) {
         return;
       }
@@ -83,7 +94,7 @@ export function useAudioLessonCall({
         },
       ).catch(() => undefined);
     },
-    [],
+    [getToken],
   );
 
   const disposeResources = useCallback(
@@ -94,11 +105,21 @@ export function useAudioLessonCall({
 
       callEndedUnsubscribeRef.current?.();
       callEndedUnsubscribeRef.current = null;
+      agentJoinedUnsubscribeRef.current?.();
+      agentJoinedUnsubscribeRef.current = null;
+      agentLeftUnsubscribeRef.current?.();
+      agentLeftUnsubscribeRef.current = null;
+      if (agentConnectionTimerRef.current) {
+        clearTimeout(agentConnectionTimerRef.current);
+        agentConnectionTimerRef.current = null;
+      }
 
       callRef.current = null;
       clientRef.current = null;
       agentSessionRef.current = null;
       activeCallIdRef.current = null;
+      activeCallTypeRef.current = null;
+      agentAttemptIdRef.current += 1;
 
       await stopAgentSession(currentCall?.id ?? null, sessionId);
 
@@ -146,12 +167,26 @@ export function useAudioLessonCall({
   }, [getToken, user]);
 
   const startAgentSession = useCallback(
-    async (callId: string, clerkToken: string) => {
+    async (callId: string, callType: string, clerkToken: string) => {
       if (!mountedRef.current || activeCallIdRef.current !== callId) {
         return;
       }
 
+      const attemptId = ++agentAttemptIdRef.current;
       setAgentStatus("connecting");
+      if (agentConnectionTimerRef.current) {
+        clearTimeout(agentConnectionTimerRef.current);
+      }
+      agentConnectionTimerRef.current = setTimeout(() => {
+        agentConnectionTimerRef.current = null;
+        if (
+          mountedRef.current &&
+          activeCallIdRef.current === callId &&
+          agentAttemptIdRef.current === attemptId
+        ) {
+          setAgentStatus("failed");
+        }
+      }, AGENT_CONNECTION_TIMEOUT_MS);
 
       try {
         const response = await fetch("/api/agent-session", {
@@ -160,7 +195,7 @@ export function useAudioLessonCall({
             Authorization: `Bearer ${clerkToken}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ callId, callType: "default" }),
+          body: JSON.stringify({ callId, callType }),
         });
 
         if (!response.ok) {
@@ -169,17 +204,46 @@ export function useAudioLessonCall({
           );
         }
 
-        const body = (await response.json()) as { session_id?: string };
-        if (!mountedRef.current || activeCallIdRef.current !== callId) {
-          await stopAgentSession(callId, body.session_id ?? null);
+        const body = (await response.json()) as { session_id?: unknown };
+        if (typeof body.session_id !== "string" || !body.session_id) {
+          throw new Error("The AI teacher returned an invalid session");
+        }
+
+        if (
+          !mountedRef.current ||
+          activeCallIdRef.current !== callId ||
+          agentAttemptIdRef.current !== attemptId
+        ) {
+          await stopAgentSession(callId, body.session_id);
           return;
         }
 
-        agentSessionRef.current = body.session_id ?? null;
-        setAgentStatus("connected");
+        agentSessionRef.current = body.session_id;
+        if (
+          callRef.current?.state.participants.some(
+            (participant) => participant.userId === AGENT_USER_ID,
+          )
+        ) {
+          if (agentConnectionTimerRef.current) {
+            clearTimeout(agentConnectionTimerRef.current);
+            agentConnectionTimerRef.current = null;
+          }
+          setAgentStatus("connected");
+        }
       } catch (error) {
         console.error("[audio-lesson] Agent session error:", error);
-        if (mountedRef.current && activeCallIdRef.current === callId) {
+        if (
+          agentAttemptIdRef.current === attemptId &&
+          agentConnectionTimerRef.current
+        ) {
+          clearTimeout(agentConnectionTimerRef.current);
+          agentConnectionTimerRef.current = null;
+        }
+        if (
+          mountedRef.current &&
+          activeCallIdRef.current === callId &&
+          agentAttemptIdRef.current === attemptId
+        ) {
           setAgentStatus("failed");
         }
       }
@@ -258,6 +322,37 @@ export function useAudioLessonCall({
       clientRef.current = streamClient;
       callRef.current = streamCall;
       activeCallIdRef.current = setup.callId;
+      activeCallTypeRef.current = setup.callType;
+
+      agentJoinedUnsubscribeRef.current = streamCall.on(
+        "call.session_participant_joined",
+        (event) => {
+          if (
+            event.participant.user.id !== AGENT_USER_ID ||
+            activeCallIdRef.current !== setup.callId
+          ) {
+            return;
+          }
+
+          if (agentConnectionTimerRef.current) {
+            clearTimeout(agentConnectionTimerRef.current);
+            agentConnectionTimerRef.current = null;
+          }
+          setAgentStatus("connected");
+        },
+      );
+      agentLeftUnsubscribeRef.current = streamCall.on(
+        "call.session_participant_left",
+        (event) => {
+          if (
+            event.participant.user.id === AGENT_USER_ID &&
+            activeCallIdRef.current === setup.callId &&
+            !isEndingRef.current
+          ) {
+            setAgentStatus("failed");
+          }
+        },
+      );
 
       callEndedUnsubscribeRef.current = streamCall.on("call.ended", () => {
         if (callRef.current !== streamCall || isEndingRef.current) {
@@ -291,7 +386,7 @@ export function useAudioLessonCall({
       await streamCall.startClosedCaptions().catch((error) => {
         console.warn("[audio-lesson] Closed captions unavailable:", error);
       });
-      void startAgentSession(setup.callId, clerkToken);
+      void startAgentSession(setup.callId, setup.callType, clerkToken);
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         return;
@@ -333,8 +428,20 @@ export function useAudioLessonCall({
     }
 
     clerkTokenRef.current = clerkToken;
-    await startAgentSession(currentCall.id, clerkToken);
-  }, [getToken, startAgentSession]);
+    agentAttemptIdRef.current += 1;
+    if (agentConnectionTimerRef.current) {
+      clearTimeout(agentConnectionTimerRef.current);
+      agentConnectionTimerRef.current = null;
+    }
+    const previousSessionId = agentSessionRef.current;
+    agentSessionRef.current = null;
+    await stopAgentSession(currentCall.id, previousSessionId);
+    await startAgentSession(
+      currentCall.id,
+      activeCallTypeRef.current ?? currentCall.type,
+      clerkToken,
+    );
+  }, [getToken, startAgentSession, stopAgentSession]);
 
   const endCall = useCallback(async () => {
     if (inFlightRef.current || callStatus !== "joined") {

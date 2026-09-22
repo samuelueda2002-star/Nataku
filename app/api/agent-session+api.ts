@@ -20,13 +20,13 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { callId, callType = "default" } = body;
+  const { callId, callType = "audio_room" } = body;
 
   if (!callId) {
     return Response.json({ error: "callId is required" }, { status: 400 });
   }
 
-  if (callType !== "default") {
+  if (callType !== "audio_room") {
     return Response.json({ error: "Unsupported call type" }, { status: 400 });
   }
 
@@ -53,19 +53,30 @@ export async function POST(request: Request): Promise<Response> {
       console.error(
         `[agent-session] Vision agent returned ${res.status}: ${text}`,
       );
-      return Response.json({ error: text }, { status: res.status });
+      return Response.json(
+        { error: "Unable to start the AI teacher" },
+        { status: 502 },
+      );
     }
 
-    const data = await res.json();
+    const data = (await res.json()) as { session_id?: unknown };
+    if (typeof data.session_id !== "string" || !data.session_id) {
+      console.error("[agent-session] Vision agent returned an invalid session");
+      return Response.json(
+        { error: "Unable to start the AI teacher" },
+        { status: 502 },
+      );
+    }
+
     console.log(`[agent-session] Session started: ${data.session_id}`);
-    return Response.json(data);
+    return Response.json({ session_id: data.session_id });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(
       `[agent-session] Failed to reach vision agent at ${AGENT_URL}: ${message}`,
     );
     return Response.json(
-      { error: `Cannot reach vision agent: ${message}` },
+      { error: "AI teacher service unavailable" },
       { status: 503 },
     );
   }
@@ -100,7 +111,13 @@ export async function DELETE(request: Request): Promise<Response> {
 
     if (!res.ok && res.status !== 404) {
       const text = await res.text();
-      return Response.json({ error: text }, { status: res.status });
+      console.error(
+        `[agent-session] Vision agent cleanup returned ${res.status}: ${text}`,
+      );
+      return Response.json(
+        { error: "Unable to stop the AI teacher" },
+        { status: 502 },
+      );
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
