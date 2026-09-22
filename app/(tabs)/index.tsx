@@ -1,5 +1,14 @@
-import { useAuth, useUser } from "@clerk/expo";
+import { HomePlanItem } from "@/components/home-plan-item";
+import { images } from "@/constants/images";
+import { LANGUAGES } from "@/data/languages";
+import { LESSONS } from "@/data/lessons";
+import { UNITS } from "@/data/units";
+import { useLanguageStore } from "@/store/languageStore";
+import { useLearningStore } from "@/store/learningStore";
+import { useUser } from "@clerk/expo";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { useMemo } from "react";
 import {
   Image,
   ScrollView,
@@ -10,251 +19,246 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { images } from "@/constants/images";
-import { colors } from "@/constants/theme";
-import { LANGUAGES } from "@/data/languages";
-import { UNITS } from "@/data/units";
-import { posthog } from "@/lib/posthog";
-import { useLanguageStore } from "@/store/languageStore";
-import { useLearningStore } from "@/store/learningStore";
-import { LanguageCode } from "@/types/learning";
-
-function getGreeting(langCode: LanguageCode | null): string {
-  switch (langCode) {
-    case "es":
-      return "Hola";
-    case "fr":
-      return "Bonjour";
-    case "ja":
-      return "こんにちは";
-    case "de":
-      return "Hallo";
-    default:
-      return "Hello";
-  }
-}
-
-const PLAN_ITEMS = [
-  {
-    id: "lesson",
-    icon: "book" as const,
-    iconBg: "#EDE9FE",
-    iconColor: colors.primary.purple,
-    title: "Lesson",
-    subtitle: "At the café",
-    completed: true,
-  },
-  {
-    id: "ai-conversation",
-    icon: "headset" as const,
-    iconBg: "#EDE9FE",
-    iconColor: colors.primary.purple,
-    title: "AI Conversation",
-    subtitle: "Talk about your day",
-    completed: false,
-  },
-  {
-    id: "new-words",
-    icon: "chatbubble-ellipses" as const,
-    iconBg: "#FEE2E2",
-    iconColor: "#EF4444",
-    title: "New words",
-    subtitle: "10 words",
-    completed: false,
-  },
-];
-
 export default function HomeScreen() {
   const { user } = useUser();
-  const { signOut } = useAuth();
-  const { selectedLanguage } = useLanguageStore();
-  const { xpToday, dailyGoal, streak } = useLearningStore();
+  const selectedLanguage = useLanguageStore(
+    (state) => state.selectedLanguage,
+  );
+  const { xpToday, dailyGoal, streak, completedLessonIds } =
+    useLearningStore();
 
-  const language = LANGUAGES.find((l) => l.code === selectedLanguage);
-  const unit = UNITS.find((u) => u.languageCode === selectedLanguage);
-  const firstName = user?.firstName ?? "Learner";
-  const greeting = getGreeting(selectedLanguage);
-  const xpProgress =
-    dailyGoal > 0 ? Math.min((xpToday / dailyGoal) * 100, 100) : 0;
+  const language = useMemo(
+    () =>
+      LANGUAGES.find((item) => item.code === selectedLanguage) ?? LANGUAGES[0],
+    [selectedLanguage],
+  );
+
+  const unit = useMemo(
+    () =>
+      UNITS.find((item) => item.languageCode === language.code) ?? UNITS[0],
+    [language.code],
+  );
+
+  const unitLessons = useMemo(
+    () =>
+      unit.lessonIds
+        .map((lessonId) => LESSONS.find((lesson) => lesson.id === lessonId))
+        .filter((lesson) => lesson !== undefined),
+    [unit.lessonIds],
+  );
+
+  const currentLesson =
+    unitLessons.find((lesson) => !completedLessonIds.includes(lesson.id)) ??
+    unitLessons.at(-1);
+
+  if (!currentLesson) return null;
+
+  const firstName =
+    user?.firstName ??
+    user?.fullName?.split(" ")[0] ??
+    user?.primaryEmailAddress?.emailAddress.split("@")[0] ??
+    "Learner";
+  const goalProgress = dailyGoal > 0 ? Math.min(xpToday / dailyGoal, 1) : 0;
+  const lessonPlanComplete =
+    completedLessonIds.includes(currentLesson.id) ||
+    xpToday >= currentLesson.xpReward;
+
+  const openCurrentLesson = () => {
+    router.push(`/lesson/${currentLesson.id}`);
+  };
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.neutral.background }}
-    >
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* ── Header ── */}
-        <View className="flex-row items-center justify-between mb-5">
-          <View className="flex-row items-center gap-[10px]">
-            {language ? (
-              <Image
-                source={{ uri: language.flag }}
-                className="w-[34px] h-[34px] rounded-full"
-              />
-            ) : (
-              <View className="w-[34px] h-[34px] rounded-full bg-surface" />
-            )}
-            <Text className="font-poppins-semibold text-base text-text-primary">
-              {greeting}, {firstName}! 👋
-            </Text>
-          </View>
+        <View className="flex-row items-center px-6 pb-7 pt-7">
+          <Image
+            source={{ uri: language.flag }}
+            className="h-10 w-10 rounded-full border border-[#E7E9EF]"
+          />
+          <Text
+            className="ml-3 flex-1 font-poppins-semibold text-[18px] leading-[25px] text-text-primary"
+            numberOfLines={1}
+          >
+            Hello, {firstName}! 👋
+          </Text>
 
-          <View className="flex-row items-center gap-[14px]">
-            <View className="flex-row items-center gap-1">
-              <Image source={images.streakFire} className="w-[22px] h-[22px]" />
-              <Text className="font-poppins-semibold text-[15px] text-streak">
-                {streak}
-              </Text>
-            </View>
-            <TouchableOpacity activeOpacity={0.7}>
+          <View className="flex-row items-center">
+            <Image
+              source={images.streakFire}
+              className="h-10 w-10"
+              resizeMode="contain"
+            />
+            <Text className="ml-1 font-poppins-medium text-[17px] text-[#65708E]">
+              {streak}
+            </Text>
+            <TouchableOpacity
+              className="ml-5 h-10 w-10 items-end justify-center"
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Notifications"
+            >
               <Ionicons
                 name="notifications-outline"
-                size={24}
-                color={colors.neutral.textPrimary}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity activeOpacity={0.7} onPress={() => signOut()}>
-              <Ionicons
-                name="log-out-outline"
-                size={24}
-                color={colors.neutral.textPrimary}
+                size={27}
+                color="#1F2C4D"
               />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* ── Daily Goal Card ── */}
-        <View className="flex-row items-center bg-[#FFF5E8] rounded-[20px] py-4 pl-5 pr-3 mb-4">
-          <View className="flex-1 pr-2">
-            <Text className="font-poppins text-xs text-text-secondary mb-1">
+        <View className="px-6">
+          <View className="h-[128px] overflow-hidden rounded-[22px] bg-[#FFF8EF] px-5 py-4">
+            <Text className="font-poppins-medium text-[16px] leading-[23px] text-[#263451]">
               Daily goal
             </Text>
-            <Text>
-              <Text className="font-poppins-bold text-[28px] text-text-primary leading-[34px]">
+
+            <View className="mt-1 flex-row items-baseline">
+              <Text className="font-poppins-semibold text-[28px] leading-[38px] text-[#13223F]">
                 {xpToday}
               </Text>
-              <Text className="font-poppins text-sm text-text-secondary leading-[34px]">
-                {` / ${dailyGoal} XP`}
+              <Text className="ml-2 font-poppins text-[16px] text-[#71809F]">
+                / {dailyGoal} XP
               </Text>
-            </Text>
-            <View className="h-2 bg-border rounded mt-[10px] overflow-hidden">
+            </View>
+
+            <View className="mt-3 h-2 w-[62%] overflow-hidden rounded-full bg-[#FFE4C7]">
               <View
-                className="h-2 bg-streak rounded"
-                style={{ width: `${Math.round(xpProgress)}%` as `${number}%` }}
+                className="h-full rounded-full bg-[#FF720D]"
+                style={{ width: `${goalProgress * 100}%` }}
               />
             </View>
-          </View>
-          <Image
-            source={images.treasure}
-            className="w-20 h-20"
-            resizeMode="contain"
-          />
-        </View>
 
-        {/* ── Continue Learning Card ── */}
-        <View className="flex-row bg-lingua-purple rounded-[20px] h-[160px] mb-6 overflow-hidden">
-          <View className="flex-1 py-5 pl-5 pr-2 justify-between">
-            <View>
-              <Text className="font-poppins text-[11px] text-white/75 mb-0.5">
-                Continue learning
-              </Text>
-              <Text className="font-poppins-bold text-[22px] text-white leading-7">
-                {language?.name ?? "Pick a language"}
-              </Text>
-              <Text className="font-poppins text-xs text-white/65 mt-0.5">
-                A1 · Unit {unit?.order ?? 1}
+            <Image
+              source={images.treasure}
+              className="absolute right-4 top-3 h-[100px] w-[100px]"
+              resizeMode="contain"
+            />
+          </View>
+
+          <TouchableOpacity
+            className="mt-5 h-[178px] overflow-hidden rounded-[22px] bg-[#6748F8] px-5 py-5"
+            style={styles.learningCard}
+            activeOpacity={0.88}
+            accessibilityRole="button"
+            accessibilityLabel={`Continue ${language.name}, ${unit.title}`}
+            onPress={openCurrentLesson}
+          >
+            <View className="absolute -bottom-10 left-[94px] h-[105px] w-[105px] rotate-45 rounded-[26px] bg-[#4B39D6]/40" />
+            <View className="absolute -right-10 top-3 h-[105px] w-[105px] rotate-45 rounded-[28px] bg-white/5" />
+
+            <Text className="font-poppins text-[16px] leading-[22px] text-white/90">
+              Continue learning
+            </Text>
+            <Text className="mt-1 font-poppins-semibold text-[26px] leading-[34px] text-white">
+              {language.name}
+            </Text>
+            <Text className="font-poppins text-[17px] leading-[24px] text-white/90">
+              A1 • Unit {unit.order}
+            </Text>
+
+            <View className="mt-4 h-[44px] w-[106px] items-center justify-center rounded-[14px] bg-white">
+              <Text className="font-poppins-semibold text-[15px] text-[#6647F5]">
+                Continue
               </Text>
             </View>
+
+            <Image
+              source={images.palace}
+              className="absolute -bottom-2 -right-5 h-[181px] w-[196px]"
+              resizeMode="contain"
+            />
+          </TouchableOpacity>
+
+          <View className="flex-row items-center pb-1 pt-6">
+            <Text className="flex-1 font-poppins-semibold text-[18px] leading-[26px] text-text-primary">
+              Today&apos;s plan
+            </Text>
             <TouchableOpacity
-              className="bg-white rounded-xl py-2 px-[22px] self-start"
-              activeOpacity={0.85}
-              testID="continue-learning-button"
-              onPress={() => {
-                posthog.capture("continue_learning_tapped", {
-                  language_code: selectedLanguage,
-                  unit_order: unit?.order ?? 1,
-                  xp_today: xpToday,
-                  streak,
-                });
-              }}
+              className="h-10 justify-center pl-5"
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="View all lessons"
+              onPress={() => router.push("/(tabs)/learn")}
             >
-              <Text className="font-poppins-semibold text-[13px] text-lingua-purple">
-                Continue
+              <Text className="font-poppins-medium text-[15px] text-[#6445F5]">
+                View all
               </Text>
             </TouchableOpacity>
           </View>
-          <Image
-            source={images.palace}
-            className="w-[130px] h-[160px]"
-            resizeMode="cover"
+
+          <HomePlanItem
+            title="Lesson"
+            subtitle={currentLesson.title}
+            icon="book"
+            iconBackground="#6748F8"
+            isComplete={lessonPlanComplete}
+            onPress={openCurrentLesson}
           />
-        </View>
+          <HomePlanItem
+            title="AI Conversation"
+            subtitle="Talk about your day"
+            icon="headset"
+            iconBackground="#6748F8"
+            onPress={() => router.push("/(tabs)/chat")}
+          />
+          <HomePlanItem
+            title="New words"
+            subtitle={`${currentLesson.vocabulary.length} words`}
+            icon="chatbubbles"
+            iconBackground="#FF5B63"
+            onPress={openCurrentLesson}
+          />
 
-        {/* ── Today's Plan Header ── */}
-        <View className="flex-row items-center justify-between mb-3">
-          <Text className="font-poppins-semibold text-[17px] text-text-primary">
-            {"Today's plan"}
-          </Text>
-          <TouchableOpacity activeOpacity={0.7}>
-            <Text className="font-poppins-medium text-[13px] text-lingua-blue">
-              View all
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── Today's Plan Card ── */}
-        <View
-          className="bg-white rounded-[20px] border border-border mb-4 overflow-hidden"
-          style={styles.planCardShadow}
-        >
-          {PLAN_ITEMS.map((item, index) => (
-            <View key={item.id}>
-              {index > 0 && <View className="h-px bg-border mx-4" />}
-              <View className="flex-row items-center px-4 py-[14px]">
-                <View
-                  className="w-11 h-11 rounded-xl items-center justify-center"
-                  style={{ backgroundColor: item.iconBg }}
-                >
-                  <Ionicons name={item.icon} size={20} color={item.iconColor} />
-                </View>
-                <View className="flex-1 ml-3">
-                  <Text className="font-poppins-semibold text-sm text-text-primary mb-0.5">
-                    {item.title}
-                  </Text>
-                  <Text className="font-poppins text-xs text-text-secondary">
-                    {item.subtitle}
-                  </Text>
-                </View>
-                {item.completed ? (
-                  <View className="w-[26px] h-[26px] rounded-full bg-lingua-blue items-center justify-center">
-                    <Ionicons name="checkmark" size={14} color="#fff" />
-                  </View>
-                ) : (
-                  <View className="w-[26px] h-[26px] rounded-full border-2 border-border" />
-                )}
-              </View>
+          <TouchableOpacity
+            className="mt-4 h-[116px] flex-row items-center overflow-hidden rounded-[22px] bg-[#F4FBEA] px-5"
+            activeOpacity={0.82}
+            accessibilityRole="button"
+            accessibilityLabel="Start AI video call"
+            onPress={() => router.push("/(tabs)/ai-teacher")}
+          >
+            <View className="flex-1">
+              <Text className="font-poppins text-[13px] leading-[20px] text-[#6D7995]">
+                Next up
+              </Text>
+              <Text className="font-poppins-semibold text-[18px] leading-[27px] text-text-primary">
+                AI Video Call
+              </Text>
+              <Text className="font-poppins text-[13px] leading-[20px] text-[#6D7995]">
+                Practice speaking
+              </Text>
             </View>
-          ))}
+
+            <View className="h-[82px] w-[82px] overflow-hidden rounded-full bg-[#E7F2D9]">
+              <Image
+                source={images.aiTeacher}
+                className="h-full w-full"
+                resizeMode="cover"
+              />
+            </View>
+            <View className="ml-3 h-[46px] w-[46px] items-center justify-center rounded-full bg-[#48C816]">
+              <Ionicons name="videocam" size={25} color="#FFFFFF" />
+            </View>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// ScrollView.contentContainerStyle and shadow (iOS/Android) must stay in StyleSheet
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 100,
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
   },
-  planCardShadow: {
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+  scrollContent: {
+    paddingBottom: 22,
+  },
+  learningCard: {
+    experimental_backgroundImage:
+      "linear-gradient(120deg, #5639F5 0%, #7048F4 62%, #8557F4 100%)",
   },
 });

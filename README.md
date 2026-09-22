@@ -201,3 +201,6 @@ detailed explanations, cool features, and exercises to boost your skills. Give i
 <a href="https://jsm.dev/lingua-jsm" target="_blank">
   <img src="public/readme/readme-jsmpro.webp" alt="Project Banner">
 </a>
+#   N a t a k u  
+ #   N a t a k u  
+ 

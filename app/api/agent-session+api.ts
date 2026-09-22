@@ -1,6 +1,18 @@
+import { verifyClerkRequest } from "@/lib/server/streamAuth";
+
 const AGENT_URL = process.env.VISION_AGENT_URL ?? "http://127.0.0.1:8000";
 
+function belongsToUser(callId: string, userId: string): boolean {
+  const safeUserId = userId.replace(/[^a-zA-Z0-9_-]/g, "-");
+  return callId.includes(`-${safeUserId}-`);
+}
+
 export async function POST(request: Request): Promise<Response> {
+  const userId = await verifyClerkRequest(request);
+  if (!userId) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let body: { callId?: string; callType?: string };
   try {
     body = await request.json();
@@ -12,6 +24,14 @@ export async function POST(request: Request): Promise<Response> {
 
   if (!callId) {
     return Response.json({ error: "callId is required" }, { status: 400 });
+  }
+
+  if (callType !== "default") {
+    return Response.json({ error: "Unsupported call type" }, { status: 400 });
+  }
+
+  if (!belongsToUser(callId, userId)) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
   console.log(
@@ -52,6 +72,11 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 export async function DELETE(request: Request): Promise<Response> {
+  const userId = await verifyClerkRequest(request);
+  if (!userId) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const callId = searchParams.get("callId");
   const sessionId = searchParams.get("sessionId");
@@ -61,6 +86,10 @@ export async function DELETE(request: Request): Promise<Response> {
       { error: "callId and sessionId are required" },
       { status: 400 },
     );
+  }
+
+  if (!belongsToUser(callId, userId)) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {

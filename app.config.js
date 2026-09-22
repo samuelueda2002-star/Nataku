@@ -1,3 +1,5 @@
+const apiOrigin = process.env.EXPO_PUBLIC_API_ORIGIN?.replace(/\/$/, "");
+
 export default {
   expo: {
     name: "duolingo-clone",
@@ -7,7 +9,6 @@ export default {
     icon: "./assets/images/icon.png",
     scheme: "duolingoclone",
     userInterfaceStyle: "automatic",
-    newArchEnabled: true,
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.jsmastery.duolingo-clone",
@@ -20,15 +21,14 @@ export default {
         backgroundImage: "./assets/images/android-icon-background.png",
         monochromeImage: "./assets/images/android-icon-monochrome.png",
       },
-      edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
     },
     web: {
-      output: "static",
+      output: "server",
       favicon: "./assets/images/favicon.png",
     },
     plugins: [
-      "expo-router",
+      apiOrigin ? ["expo-router", { origin: apiOrigin }] : "expo-router",
       [
         "expo-splash-screen",
         {
@@ -69,7 +69,6 @@ export default {
     extra: {
       posthogProjectToken: process.env.POSTHOG_PROJECT_TOKEN,
       posthogHost: process.env.POSTHOG_HOST,
-      streamApiKey: process.env.STREAM_API_KEY,
     },
   },
 };

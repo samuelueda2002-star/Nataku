@@ -5,13 +5,18 @@ export default function TabsLayout() {
   return (
     <Tabs
       tabBar={(props) => <TabBar {...props} />}
-      screenOptions={{ headerShown: false }}
+      screenOptions={{
+        animation: "fade",
+        headerShown: false,
+        sceneStyle: { backgroundColor: "#FFFFFF" },
+      }}
     >
-      <Tabs.Screen name="index" />
-      <Tabs.Screen name="learn" />
-      <Tabs.Screen name="ai-teacher" />
-      <Tabs.Screen name="chat" />
-      <Tabs.Screen name="profile" />
+      <Tabs.Screen name="index" options={{ title: "Home" }} />
+      <Tabs.Screen name="learn" options={{ title: "Learn" }} />
+      <Tabs.Screen name="ai-teacher" options={{ title: "AI Teacher" }} />
+      <Tabs.Screen name="chat" options={{ title: "Chat" }} />
+      <Tabs.Screen name="profile" options={{ title: "Profile" }} />
+      <Tabs.Screen name="lesson/[id]" options={{ href: null }} />
     </Tabs>
   );
 }

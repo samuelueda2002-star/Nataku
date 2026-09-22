@@ -9,12 +9,12 @@ interface Props {
 export default function SocialButton({ icon, label, onPress }: Props) {
   return (
     <TouchableOpacity
-      className="mb-3 flex-row items-center rounded-2xl border border-gray-200 px-4 py-3.5"
+      className="h-[54px] flex-row items-center justify-center rounded-[17px] border border-[#E6EAF2] bg-white"
       onPress={onPress}
       activeOpacity={0.75}
     >
-      <View className="w-6 items-center">{icon}</View>
-      <Text className="flex-1 text-center text-[14px] font-poppins-medium text-[#001328]">
+      <View className="absolute left-9 w-7 items-center">{icon}</View>
+      <Text className="text-center text-[15px] font-poppins-medium text-[#001328]">
         {label}
       </Text>
     </TouchableOpacity>

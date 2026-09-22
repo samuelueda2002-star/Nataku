@@ -2,14 +2,15 @@ import "../global.css";
 
 import { posthog } from "@/lib/posthog";
 import { useLanguageStore } from "@/store/languageStore";
-import { useUser } from "@clerk/expo";
-import { ClerkProvider } from "@clerk/expo";
+import { ClerkProvider, useAuth, useUser } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { useFonts } from "expo-font";
 import { Stack, useGlobalSearchParams, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { PostHogProvider } from "posthog-react-native";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!;
 
@@ -22,16 +23,55 @@ SplashScreen.preventAutoHideAsync();
 function ClerkIdentifier() {
   const { isSignedIn, user, isLoaded } = useUser();
   const { selectedLanguage } = useLanguageStore();
+  const userId = user?.id;
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || !user) return;
-    posthog.identify(user.id, {
+    if (!isLoaded || !isSignedIn || !userId) return;
+    posthog.identify(userId, {
       $set_once: { signup_date: new Date().toISOString() },
       $set: { preferred_language: selectedLanguage ?? null },
     });
-  }, [isLoaded, isSignedIn, user?.id, selectedLanguage]);
+  }, [isLoaded, isSignedIn, userId, selectedLanguage]);
 
   return null;
+}
+
+function RootNavigator() {
+  const { isLoaded, isSignedIn } = useAuth();
+  const selectedLanguage = useLanguageStore(
+    (state) => state.selectedLanguage
+  );
+  const [languageHydrated, setLanguageHydrated] = useState(
+    useLanguageStore.persist.hasHydrated()
+  );
+
+  useEffect(() => {
+    return useLanguageStore.persist.onFinishHydration(() => {
+      setLanguageHydrated(true);
+    });
+  }, []);
+
+  if (!isLoaded || !languageHydrated) {
+    return (
+      <View className="flex-1 items-center justify-center bg-white">
+        <ActivityIndicator size="large" color="#5543F5" />
+      </View>
+    );
+  }
+
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="onboarding" />
+      <Stack.Screen name="language-select" />
+      <Stack.Protected guard={!isSignedIn}>
+        <Stack.Screen name="(auth)" />
+      </Stack.Protected>
+      <Stack.Protected guard={!!isSignedIn && !!selectedLanguage}>
+        <Stack.Screen name="(tabs)" />
+      </Stack.Protected>
+    </Stack>
+  );
 }
 
 export default function RootLayout() {
@@ -67,26 +107,21 @@ export default function RootLayout() {
   }
 
   return (
-    <PostHogProvider
-      client={posthog}
-      autocapture={{
-        captureScreens: true,
-        captureTouches: true,
-        propsToCapture: ["testID"],
-        maxElementsCaptured: 20,
-      }}
-    >
-      <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-        <ClerkIdentifier />
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="onboarding" />
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="language-select" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="lesson" />
-        </Stack>
-      </ClerkProvider>
-    </PostHogProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <PostHogProvider
+        client={posthog}
+        autocapture={{
+          captureScreens: true,
+          captureTouches: true,
+          propsToCapture: ["testID"],
+          maxElementsCaptured: 20,
+        }}
+      >
+        <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+          <ClerkIdentifier />
+          <RootNavigator />
+        </ClerkProvider>
+      </PostHogProvider>
+    </GestureHandlerRootView>
   );
 }

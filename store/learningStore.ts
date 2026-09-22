@@ -7,8 +7,10 @@ interface LearningState {
   dailyGoal: number;
   streak: number;
   completedLessonIds: string[];
+  activeLessonId: string | null;
   addXP: (amount: number) => void;
   completeLesson: (lessonId: string) => void;
+  selectLesson: (lessonId: string) => void;
 }
 
 export const useLearningStore = create<LearningState>()(
@@ -17,7 +19,8 @@ export const useLearningStore = create<LearningState>()(
       xpToday: 15,
       dailyGoal: 20,
       streak: 12,
-      completedLessonIds: [],
+      completedLessonIds: ["en-lesson-1", "en-lesson-2"],
+      activeLessonId: "en-lesson-3",
       addXP: (amount) =>
         set((state) => ({
           xpToday: Math.min(state.xpToday + amount, state.dailyGoal),
@@ -28,6 +31,7 @@ export const useLearningStore = create<LearningState>()(
             ? state.completedLessonIds
             : [...state.completedLessonIds, lessonId],
         })),
+      selectLesson: (lessonId) => set({ activeLessonId: lessonId }),
     }),
     {
       name: "learning-storage",

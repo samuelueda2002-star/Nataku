@@ -1,4 +1,4 @@
-export type LanguageCode = "es" | "fr" | "ja" | "ko" | "de" | "zh";
+export type LanguageCode = "en";
 
 export interface Language {
   code: LanguageCode;
@@ -11,9 +11,19 @@ export interface Language {
 
 export type ActivityType =
   | "vocabulary"
-  | "translate"
   | "multiple-choice"
-  | "listen";
+  | "translate"
+  | "listen"
+  | "speak";
+
+export interface Activity {
+  id: string;
+  type: ActivityType;
+  question: string;
+  correctAnswer: string;
+  options?: string[];
+  hint?: string;
+}
 
 export interface VocabularyItem {
   word: string;
@@ -26,15 +36,6 @@ export interface Phrase {
   text: string;
   translation: string;
   pronunciation: string;
-}
-
-export interface Activity {
-  id: string;
-  type: ActivityType;
-  question: string;
-  correctAnswer: string;
-  options?: string[];
-  hint?: string;
 }
 
 export interface LessonGoal {

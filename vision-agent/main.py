@@ -21,6 +21,7 @@ from vision_agents.plugins import getstream, openai  # noqa: E402
 AGENT_USER_ID = "ai-teacher"
 
 LANGUAGE_NAMES: dict[str, str] = {
+    "en": "English",
     "es": "Spanish",
     "fr": "French",
     "ja": "Japanese",
@@ -102,7 +103,13 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
     intro_message  = custom.get("intro_message")
     language_code  = custom.get("language") or ""
     lesson_title   = custom.get("lesson_title") or ""
-    language_name  = LANGUAGE_NAMES.get(language_code) or _language_name_from_call_id(call_id) or "language"
+    learner_name   = custom.get("user_name") or "A student"
+    language_name = (
+        custom.get("language_name")
+        or LANGUAGE_NAMES.get(language_code)
+        or _language_name_from_call_id(call_id)
+        or "language"
+    )
 
     # Apply lesson-specific instructions before joining so the Realtime LLM receives them
     agent.instructions = Instructions(input_text=system_prompt)
@@ -161,7 +168,7 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
         await agent.wait_for_participant(timeout=60.0)
 
         if intro_message:
-            context_parts = [f"A student just joined your {language_name} lesson"]
+            context_parts = [f"{learner_name} just joined your {language_name} lesson"]
             if lesson_title:
                 context_parts[0] += f" — '{lesson_title}'"
             context_parts[0] += "."
@@ -174,7 +181,7 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
             await agent.simple_response(" ".join(context_parts))
         else:
             await agent.simple_response(
-                f"A student just joined your {language_name} lesson. "
+                f"{learner_name} just joined your {language_name} lesson. "
                 f"Greet them warmly and ask one short question — like 'Ready to learn some {language_name}?' "
                 f"Then STOP and wait for their reply before you teach anything."
             )
