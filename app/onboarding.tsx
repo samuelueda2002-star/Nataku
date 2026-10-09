@@ -15,12 +15,17 @@ export default function OnboardingScreen() {
         <View className="mt-[14px] h-[72px] flex-row items-center justify-center">
           <Image
             source={images.mascotLogo}
-            className="h-[72px] w-[72px]"
+            className="h-[72px] w-[72px] rounded-[18px]"
             resizeMode="contain"
           />
-          <Text className="font-poppins-semibold text-[26px] text-text-primary">
-            muolingo
-          </Text>
+          <View className="ml-2">
+            <Text className="font-poppins-semibold text-[26px] text-[#23D56C]">
+              Nataku
+            </Text>
+            <Text className="font-poppins text-[11px] text-text-secondary">
+              English School
+            </Text>
+          </View>
         </View>
 
         <View className="mt-[40px] px-3">
@@ -72,7 +77,7 @@ export default function OnboardingScreen() {
           </View>
 
           <View
-            className="absolute right-0 top-[92px] h-[54px] w-[88px] items-center justify-center rounded-[17px] bg-[#FFF0E9]"
+            className="absolute right-0 top-[180px] h-[54px] w-[88px] items-center justify-center rounded-[17px] bg-[#FFF0E9]"
             style={{ transform: [{ rotate: "9deg" }] }}
           >
             <View

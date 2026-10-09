@@ -2,14 +2,11 @@ import AuthScreen, { SocialStrategy } from "@/components/AuthScreen";
 import VerificationModal from "@/components/VerificationModal";
 import { posthog } from "@/lib/posthog";
 import { useLanguageStore } from "@/store/languageStore";
-import { useSignUp, useSSO } from "@clerk/expo";
-import * as Linking from "expo-linking";
+import { useSignUp } from "@clerk/expo";
+import { useSSO } from "@clerk/expo/experimental";
 import { type Href, router } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
 import { useState } from "react";
 import { View } from "react-native";
-
-WebBrowser.maybeCompleteAuthSession();
 
 export default function SignUpScreen() {
   const { signUp, errors, fetchStatus } = useSignUp();
@@ -107,14 +104,18 @@ export default function SignUpScreen() {
   const handleSSO = async (strategy: SocialStrategy) => {
     posthog.capture("sign_up_sso_started", { strategy });
     setAuthError("");
+    if (strategy !== "oauth_google") {
+      const provider = strategy === "oauth_facebook" ? "Facebook" : "Apple";
+      setAuthError(`${provider} sign up is not enabled yet.`);
+      return;
+    }
+
     try {
-      const { createdSessionId, setActive } = await startSSOFlow({
+      const { createdSessionId } = await startSSOFlow({
         strategy,
-        redirectUrl: Linking.createURL("/"),
       });
-      if (createdSessionId && setActive) {
+      if (createdSessionId) {
         posthog.capture("sign_up_completed", { method: strategy });
-        await setActive({ session: createdSessionId });
         router.replace("/");
       }
     } catch (error) {

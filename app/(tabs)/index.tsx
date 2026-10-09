@@ -1,8 +1,8 @@
 import { HomePlanItem } from "@/components/home-plan-item";
 import { images } from "@/constants/images";
 import { LANGUAGES } from "@/data/languages";
-import { LESSONS } from "@/data/lessons";
 import { UNITS } from "@/data/units";
+import { getCourseLessons } from "@/lib/learning-path";
 import { useLanguageStore } from "@/store/languageStore";
 import { useLearningStore } from "@/store/learningStore";
 import { useUser } from "@clerk/expo";
@@ -33,25 +33,14 @@ export default function HomeScreen() {
     [selectedLanguage],
   );
 
-  const unit = useMemo(
-    () =>
-      UNITS.find((item) => item.languageCode === language.code) ?? UNITS[0],
-    [language.code],
-  );
-
-  const unitLessons = useMemo(
-    () =>
-      unit.lessonIds
-        .map((lessonId) => LESSONS.find((lesson) => lesson.id === lessonId))
-        .filter((lesson) => lesson !== undefined),
-    [unit.lessonIds],
-  );
+  const unitLessons = useMemo(() => getCourseLessons(language.code), [language.code]);
 
   const currentLesson =
     unitLessons.find((lesson) => !completedLessonIds.includes(lesson.id)) ??
     unitLessons.at(-1);
 
   if (!currentLesson) return null;
+  const unit = UNITS.find((item) => item.id === currentLesson.unitId) ?? UNITS[0];
 
   const firstName =
     user?.firstName ??
@@ -59,9 +48,7 @@ export default function HomeScreen() {
     user?.primaryEmailAddress?.emailAddress.split("@")[0] ??
     "Learner";
   const goalProgress = dailyGoal > 0 ? Math.min(xpToday / dailyGoal, 1) : 0;
-  const lessonPlanComplete =
-    completedLessonIds.includes(currentLesson.id) ||
-    xpToday >= currentLesson.xpReward;
+  const lessonPlanComplete = completedLessonIds.includes(currentLesson.id);
 
   const openCurrentLesson = () => {
     router.push(`/lesson/${currentLesson.id}`);

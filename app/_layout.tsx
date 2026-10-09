@@ -20,18 +20,35 @@ if (!publishableKey) {
 
 SplashScreen.preventAutoHideAsync();
 
+function useLanguageStoreHydrated() {
+  const [isHydrated, setIsHydrated] = useState(
+    useLanguageStore.persist.hasHydrated()
+  );
+
+  useEffect(() => {
+    return useLanguageStore.persist.onFinishHydration(() => {
+      setIsHydrated(true);
+    });
+  }, []);
+
+  return isHydrated;
+}
+
 function ClerkIdentifier() {
   const { isSignedIn, user, isLoaded } = useUser();
-  const { selectedLanguage } = useLanguageStore();
+  const selectedLanguage = useLanguageStore(
+    (state) => state.selectedLanguage
+  );
+  const languageHydrated = useLanguageStoreHydrated();
   const userId = user?.id;
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || !userId) return;
+    if (!isLoaded || !isSignedIn || !userId || !languageHydrated) return;
     posthog.identify(userId, {
       $set_once: { signup_date: new Date().toISOString() },
       $set: { preferred_language: selectedLanguage ?? null },
     });
-  }, [isLoaded, isSignedIn, userId, selectedLanguage]);
+  }, [isLoaded, isSignedIn, userId, languageHydrated, selectedLanguage]);
 
   return null;
 }
@@ -41,15 +58,7 @@ function RootNavigator() {
   const selectedLanguage = useLanguageStore(
     (state) => state.selectedLanguage
   );
-  const [languageHydrated, setLanguageHydrated] = useState(
-    useLanguageStore.persist.hasHydrated()
-  );
-
-  useEffect(() => {
-    return useLanguageStore.persist.onFinishHydration(() => {
-      setLanguageHydrated(true);
-    });
-  }, []);
+  const languageHydrated = useLanguageStoreHydrated();
 
   if (!isLoaded || !languageHydrated) {
     return (

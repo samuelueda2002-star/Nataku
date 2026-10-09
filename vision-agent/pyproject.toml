@@ -3,6 +3,6 @@ name = "vision-agent"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "vision-agents[getstream,openai]",
-    "python-dotenv",
+    "vision-agents[getstream,openai]==0.6.9",
+    "python-dotenv>=1.2.2,<2",
 ]

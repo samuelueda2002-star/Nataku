@@ -23,6 +23,11 @@ export function LessonCard({
 }: LessonCardProps) {
   const isCompleted = status === "completed";
   const isInProgress = status === "in-progress";
+  const statusLabel = isCompleted
+    ? "Completed"
+    : isInProgress
+      ? "In progress"
+      : "Available";
 
   return (
     <TouchableOpacity
@@ -35,16 +40,32 @@ export function LessonCard({
             ? "in progress"
             : "not started, available"
       }`}
-      className={`min-h-[82px] flex-row items-center rounded-[18px] border px-5 py-3.5 ${
+      className={`min-h-[92px] flex-row items-center rounded-[18px] border p-3 ${
         isInProgress
           ? "border-[#7657FF] bg-[#FAF9FF]"
+          : isCompleted
+            ? "border-[#CDEFD2] bg-[#FBFFFC]"
           : "border-[#ECEEF3] bg-white"
       }`}
       style={[styles.card, isInProgress && styles.cardInProgress]}
       testID={`lesson-card-${lesson.id}`}
       onPress={onPress}
     >
-      <View className="flex-1 pr-3">
+      <View className="relative h-[64px] w-[64px] overflow-hidden rounded-[15px] bg-[#EEF0F5]">
+        <Image
+          source={imageSource}
+          className="h-full w-full"
+          resizeMode="cover"
+          accessibilityLabel={`${lesson.title} lesson image`}
+        />
+        {isCompleted ? (
+          <View className="absolute bottom-1 right-1 h-[23px] w-[23px] items-center justify-center rounded-full bg-[#22C718]">
+            <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+          </View>
+        ) : null}
+      </View>
+
+      <View className="min-w-0 flex-1 px-3">
         <Text
           className={`font-poppins-medium text-[13px] leading-[20px] ${
             isInProgress ? "text-[#6445F5]" : "text-[#73809C]"
@@ -60,32 +81,32 @@ export function LessonCard({
           {lesson.title}
         </Text>
 
-        {!isCompleted ? (
-          <Text
-            className={`mt-0.5 font-poppins text-[13px] leading-[19px] ${
-              isInProgress ? "text-[#6445F5]" : "text-[#74809A]"
-            }`}
-          >
-            {isInProgress
-              ? "In progress"
-              : `0 / ${lesson.activities.length} activities`}
-          </Text>
-        ) : null}
+        <Text className="mt-0.5 font-poppins text-[12px] leading-[18px] text-[#74809A]">
+          {lesson.vocabulary.length} words • {lesson.xpReward} XP
+        </Text>
       </View>
 
-      {isCompleted ? (
-        <View className="h-[30px] w-[30px] items-center justify-center rounded-full bg-[#22C718]">
-          <Ionicons name="checkmark" size={21} color="#FFFFFF" />
-        </View>
-      ) : isInProgress ? (
-        <Image
-          source={imageSource}
-          className="h-[54px] w-[54px] rounded-[13px]"
-          resizeMode="cover"
-        />
-      ) : (
-        <Ionicons name="lock-closed-outline" size={24} color="#5C6885" />
-      )}
+      <View
+        className={`rounded-full px-2.5 py-1 ${
+          isCompleted
+            ? "bg-[#E7F8EA]"
+            : isInProgress
+              ? "bg-[#EEEAFE]"
+              : "bg-[#F0F2F6]"
+        }`}
+      >
+        <Text
+          className={`font-poppins-medium text-[10px] ${
+            isCompleted
+              ? "text-[#168A31]"
+              : isInProgress
+                ? "text-[#6445F5]"
+                : "text-[#66718B]"
+          }`}
+        >
+          {statusLabel}
+        </Text>
+      </View>
     </TouchableOpacity>
   );
 }

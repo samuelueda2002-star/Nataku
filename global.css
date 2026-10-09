@@ -115,3 +115,75 @@
   line-height: 15px;
   color: #6b7280;
 }
+
+/* Profile cards and supporting text. */
+@utility profile__card {
+  border-width: 1px;
+  border-color: #eeeaf5;
+  border-radius: 22px;
+  background-color: #ffffff;
+  padding: 20px;
+}
+
+@utility profile__heading {
+  font-family: "Poppins-SemiBold";
+  font-size: 18px;
+  line-height: 26px;
+  color: #001328;
+}
+
+@utility profile__muted {
+  font-family: "Poppins-Regular";
+  font-size: 12px;
+  line-height: 19px;
+  color: #6b7280;
+}
+
+@utility chat__muted {
+  font-family: "Poppins-Regular";
+  font-size: 12px;
+  line-height: 20px;
+  color: #78836f;
+}
+
+@utility chat__button {
+  min-height: 54px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 18px;
+  border-bottom-width: 4px;
+  border-bottom-color: #46a302;
+  background-color: #58cc02;
+  padding: 14px 16px;
+}
+
+@utility lesson__button {
+  min-height: 56px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  border-bottom-width: 4px;
+  border-bottom-color: #46a302;
+  background-color: #58cc02;
+  padding: 12px 16px;
+}
+
+@utility lesson__option {
+  min-height: 64px;
+  border-width: 2px;
+  border-bottom-width: 4px;
+  border-radius: 16px;
+  padding: 12px 16px;
+}
+
+@utility lesson__tile {
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border-width: 2px;
+  border-bottom-width: 4px;
+  border-radius: 12px;
+  padding: 8px 14px;
+}

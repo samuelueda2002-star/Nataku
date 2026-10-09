@@ -43,3 +43,14 @@ app-example
 /ios
 /android
 .env
+
+# JetBrains IDE metadata
+.idea/
+.idea/workspace.xml
+.idea/caches/
+.idea/shelf/
+.idea/usage.statistics.xml
+
+# Local previews and build artifacts
+/.tmp/
+/tmp/

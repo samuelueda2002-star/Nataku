@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { type ComponentProps, useEffect } from "react";
+import { type ComponentProps, useEffect, useState } from "react";
 import {
   StyleSheet,
+  Keyboard,
   Text,
   TouchableOpacity,
   useWindowDimensions,
@@ -59,6 +60,13 @@ export function TabBar({
   const { width } = useWindowDimensions();
   const visibleRoutes = state.routes.filter((route) => TAB_CONFIG[route.name]);
   const activeRouteName = state.routes[state.index]?.name;
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   const visibleIndex = Math.max(
     0,
     visibleRoutes.findIndex((route) =>
@@ -86,6 +94,8 @@ export function TabBar({
   const indicatorStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: indicatorX.value }],
   }));
+
+  if (activeRouteName === "lesson/[id]" || (keyboardVisible && activeRouteName === "chat")) return null;
 
   return (
     <View

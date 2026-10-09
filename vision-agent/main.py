@@ -1,16 +1,22 @@
+import asyncio
+import logging
 import os
 import tempfile
-from typing import Any, Optional
+from collections.abc import Awaitable, Callable
+from typing import Any, Literal, Optional
 
 from dotenv import load_dotenv
 
-# Load shared app and Stream keys from the repository-level environment file.
-load_dotenv(
-    os.path.join(os.path.dirname(__file__), "..", ".env.local"),
-    override=True,
-)
-# Local .env adds OPENAI_API_KEY and can override any key
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
+SERVICE_DIR = os.path.dirname(__file__)
+REPOSITORY_DIR = os.path.dirname(SERVICE_DIR)
+
+# Reuse the app's Stream credentials. The Expo project currently uses
+# .env.local, while .env is also supported for conventional deployments.
+load_dotenv(os.path.join(REPOSITORY_DIR, ".env"), override=True)
+load_dotenv(os.path.join(REPOSITORY_DIR, ".env.local"), override=True)
+# The service-local file is the intended home for OPENAI_API_KEY and may
+# override shared values during local development.
+load_dotenv(os.path.join(SERVICE_DIR, ".env"), override=True)
 
 from getstream.models import MemberRequest  # noqa: E402
 from openai.types.realtime.realtime_transcription_session_audio_input_turn_detection_param import ServerVad  # noqa: E402
@@ -21,6 +27,172 @@ from vision_agents.plugins import getstream, openai  # noqa: E402
 
 AGENT_USER_ID = "ai-teacher"
 VAD_MODEL_DIR = os.path.join(tempfile.gettempdir(), "lingua-vision-agent-vad")
+CAPTION_UPDATE_INTERVAL_SECONDS = 0.15
+logger = logging.getLogger(__name__)
+
+CaptionSpeaker = Literal["agent", "user"]
+CaptionPublisher = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+class LiveCaptionRealtime(openai.Realtime):
+    """Forwards OpenAI's interim transcripts to participants in the Stream call."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._caption_publisher: CaptionPublisher | None = None
+        self._caption_text: dict[tuple[CaptionSpeaker, str], str] = {}
+        self._caption_sequence: dict[tuple[CaptionSpeaker, str], int] = {}
+        self._caption_flush_tasks: dict[
+            tuple[CaptionSpeaker, str], asyncio.Task[None]
+        ] = {}
+        self._caption_tasks: set[asyncio.Task[None]] = set()
+        self._captions_closing = False
+
+    def set_caption_publisher(self, publisher: CaptionPublisher) -> None:
+        self._caption_publisher = publisher
+
+    def _publish_caption(
+        self,
+        event: dict[str, Any],
+        speaker: CaptionSpeaker,
+        *,
+        final: bool,
+    ) -> None:
+        publisher = self._caption_publisher
+        text_part = event.get("transcript" if final else "delta")
+        if (
+            self._captions_closing
+            or publisher is None
+            or not isinstance(text_part, str)
+            or not text_part
+        ):
+            return
+
+        utterance_id = event.get("item_id") or event.get("response_id")
+        if not isinstance(utterance_id, str) or not utterance_id:
+            utterance_id = event.get("event_id")
+        if not isinstance(utterance_id, str) or not utterance_id:
+            return
+
+        key = (speaker, utterance_id)
+        text = text_part if final else self._caption_text.get(key, "") + text_part
+        # Stream custom events have a 5 KB payload limit. Lesson turns are short,
+        # but keep a defensive ceiling so captions can never break the audio flow.
+        text = text[:4000]
+        self._caption_text[key] = text
+
+        if not final:
+            if key not in self._caption_flush_tasks:
+                self._caption_flush_tasks[key] = asyncio.create_task(
+                    self._flush_partial_caption(publisher, key)
+                )
+            return
+
+        pending_flush = self._caption_flush_tasks.pop(key, None)
+        if pending_flush is not None:
+            pending_flush.cancel()
+        self._schedule_caption_event(publisher, key, text, final=True)
+        self._caption_text.pop(key, None)
+
+    async def _flush_partial_caption(
+        self,
+        publisher: CaptionPublisher,
+        key: tuple[CaptionSpeaker, str],
+    ) -> None:
+        sent_text: str | None = None
+        try:
+            # OpenAI can emit a delta per token. Coalesce a few tokens so the
+            # call receives smooth updates without flooding custom events.
+            await asyncio.sleep(CAPTION_UPDATE_INTERVAL_SECONDS)
+            sent_text = self._caption_text.get(key)
+            if sent_text:
+                self._schedule_caption_event(
+                    publisher, key, sent_text, final=False
+                )
+        finally:
+            current_task = asyncio.current_task()
+            if self._caption_flush_tasks.get(key) is current_task:
+                self._caption_flush_tasks.pop(key, None)
+            latest_text = self._caption_text.get(key)
+            if (
+                not self._captions_closing
+                and latest_text
+                and latest_text != sent_text
+            ):
+                self._caption_flush_tasks[key] = asyncio.create_task(
+                    self._flush_partial_caption(publisher, key)
+                )
+
+    def _schedule_caption_event(
+        self,
+        publisher: CaptionPublisher,
+        key: tuple[CaptionSpeaker, str],
+        text: str,
+        *,
+        final: bool,
+    ) -> None:
+        speaker, utterance_id = key
+        sequence = self._caption_sequence.get(key, 0) + 1
+        self._caption_sequence[key] = sequence
+
+        task = asyncio.create_task(
+            self._send_caption_event(
+                publisher,
+                {
+                    "type": "transcript_final" if final else "transcript_partial",
+                    "speaker": speaker,
+                    "text": text,
+                    "utterance_id": utterance_id,
+                    "sequence": sequence,
+                },
+            )
+        )
+        self._caption_tasks.add(task)
+        task.add_done_callback(self._caption_tasks.discard)
+
+    async def _send_caption_event(
+        self,
+        publisher: CaptionPublisher,
+        payload: dict[str, Any],
+    ) -> None:
+        try:
+            await publisher(payload)
+        except Exception as error:
+            # Captions are additive; a delivery failure must not interrupt audio.
+            logger.warning("Could not publish live caption: %s", error)
+
+    async def _handle_openai_event(self, event: dict[str, Any]) -> None:
+        event_type = event.get("type")
+
+        if event_type in {
+            "response.audio_transcript.delta",
+            "response.output_audio_transcript.delta",
+        }:
+            self._publish_caption(event, "agent", final=False)
+        elif event_type in {
+            "response.audio_transcript.done",
+            "response.output_audio_transcript.done",
+        }:
+            self._publish_caption(event, "agent", final=True)
+        elif event_type == "conversation.item.input_audio_transcription.delta":
+            self._publish_caption(event, "user", final=False)
+        elif event_type == "conversation.item.input_audio_transcription.completed":
+            self._publish_caption(event, "user", final=True)
+
+        await super()._handle_openai_event(event)
+
+    async def close(self) -> None:
+        await super().close()
+        self._captions_closing = True
+        flush_tasks = tuple(self._caption_flush_tasks.values())
+        self._caption_flush_tasks.clear()
+        for task in flush_tasks:
+            task.cancel()
+        if flush_tasks:
+            await asyncio.gather(*flush_tasks, return_exceptions=True)
+        if self._caption_tasks:
+            await asyncio.gather(*tuple(self._caption_tasks), return_exceptions=True)
+
 
 LANGUAGE_NAMES: dict[str, str] = {
     "en": "English",
@@ -49,6 +221,12 @@ DEFAULT_SYSTEM_PROMPT = (
     "- Stay strictly within the current lesson's vocabulary."
 )
 
+ENGLISH_TEACHING_POLICY = (
+    "Always conduct the lesson in English. Use the selected target language only "
+    "when demonstrating words or phrases the student is learning. Explain meanings, "
+    "pronunciation, corrections, and feedback in English."
+)
+
 def _require_env(var_name: str) -> None:
     if not os.getenv(var_name):
         raise RuntimeError(f"Missing required environment variable: {var_name}")
@@ -65,6 +243,20 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _format_goals(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    entries: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            entries.append(item.strip())
+        elif isinstance(item, dict):
+            desc = item.get("description")
+            if isinstance(desc, str) and desc.strip():
+                entries.append(desc.strip())
+    return entries
 
 
 def _format_vocabulary(value: Any) -> list[str]:
@@ -124,14 +316,17 @@ def _format_phrases(value: Any) -> list[str]:
 
 
 def _lesson_instructions(custom: dict[str, Any], language_name: str) -> str:
+    lesson_id = custom.get("lesson_id")
     lesson_title = custom.get("lesson_title")
     lesson_description = custom.get("lesson_description")
-    goals = _string_list(custom.get("goals"))
+    goals = _format_goals(custom.get("goals"))
     vocabulary = _format_vocabulary(custom.get("vocabulary"))
     phrases = _format_phrases(custom.get("phrases"))
     topics = _string_list(custom.get("topics"))
 
     sections = [f"Target language: {language_name}"]
+    if isinstance(lesson_id, str) and lesson_id.strip():
+        sections.append(f"Selected lesson ID: {lesson_id.strip()}")
     if isinstance(lesson_title, str) and lesson_title.strip():
         sections.append(f"Selected lesson: {lesson_title.strip()}")
     if isinstance(lesson_description, str) and lesson_description.strip():
@@ -153,33 +348,37 @@ def _lesson_instructions(custom: dict[str, Any], language_name: str) -> str:
 
 
 async def create_agent(**kwargs) -> Agent:
-    return Agent(
+    realtime_llm = LiveCaptionRealtime(
+        send_video=False,
+        # server_vad fires on raw audio energy (~100 ms after mic opens) rather
+        # than waiting for semantic speech intent detection (~500 ms+).
+        # This means the agent stops speaking almost immediately when the user
+        # presses the push-and-hold mic button, before they have said a word.
+        realtime_session={
+            "type": "realtime",
+            "audio": {
+                "input": {
+                    "transcription": {"model": "gpt-4o-mini-transcribe"},
+                    "turn_detection": ServerVad(
+                        type="server_vad",
+                        threshold=0.4,         # low enough to catch ambient noise on mic open
+                        prefix_padding_ms=200,  # capture brief audio before speech onset
+                        silence_duration_ms=400, # commit turn after 400 ms of silence
+                        interrupt_response=True, # stop agent audio the moment VAD fires
+                    ),
+                }
+            },
+        }
+    )
+    agent = Agent(
         edge=getstream.Edge(),
-        llm=openai.Realtime(
-            # server_vad fires on raw audio energy (~100 ms after mic opens) rather
-            # than waiting for semantic speech intent detection (~500 ms+).
-            # This means the agent stops speaking almost immediately when the user
-            # presses the push-and-hold mic button, before they have said a word.
-            realtime_session={
-                "type": "realtime",
-                "audio": {
-                    "input": {
-                        "transcription": {"model": "gpt-4o-mini-transcribe"},
-                        "turn_detection": ServerVad(
-                            type="server_vad",
-                            threshold=0.4,         # low enough to catch ambient noise on mic open
-                            prefix_padding_ms=200,  # capture brief audio before speech onset
-                            silence_duration_ms=400, # commit turn after 400 ms of silence
-                            interrupt_response=True, # stop agent audio the moment VAD fires
-                        ),
-                    }
-                },
-            }
-        ),
+        llm=realtime_llm,
         agent_user=User(name="AI Teacher", id=AGENT_USER_ID),
-        instructions=DEFAULT_SYSTEM_PROMPT,
+        instructions=f"{DEFAULT_SYSTEM_PROMPT}\n\n{ENGLISH_TEACHING_POLICY}",
         multi_speaker_filter=FirstSpeakerWinsFilter(model_dir=VAD_MODEL_DIR),
     )
+    realtime_llm.set_caption_publisher(agent.send_custom_event)
+    return agent
 
 
 async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> None:
@@ -209,7 +408,9 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
     # selected language, goals, vocabulary, phrases, topics, and teacher prompt.
     lesson_context = _lesson_instructions(custom, language_name)
     agent.instructions = Instructions(
-        input_text=f"{system_prompt}\n\n{lesson_context}"
+        input_text=(
+            f"{system_prompt}\n\n{ENGLISH_TEACHING_POLICY}\n\n{lesson_context}"
+        )
     )
 
     # audio_room starts backstage. The agent must be an admin and the room must
@@ -228,10 +429,7 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
         print(f"[agent] Could not take the audio room live: {e}")
         raise
 
-    async with agent.join(call):
-        # Wait for the student to join (returns immediately if already present)
-        await agent.wait_for_participant(timeout=60.0)
-
+    async with agent.join(call, participant_wait_timeout=60.0):
         if intro_message:
             context_parts = [f"{learner_name} just joined your {language_name} lesson"]
             if lesson_title:

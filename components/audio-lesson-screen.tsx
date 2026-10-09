@@ -41,6 +41,14 @@ type LiveCaption = {
   text: string;
 };
 
+type LiveCaptionEvent = {
+  sequence?: number;
+  speaker?: "agent" | "user";
+  text?: string;
+  type?: "transcript_final" | "transcript_partial";
+  utterance_id?: string;
+};
+
 type StageProps = {
   agentStatus: AgentStatus;
   callStatus: AudioCallStatus;
@@ -64,7 +72,7 @@ type StageProps = {
 
 export function AudioLessonScreen({ lessonId }: { lessonId?: string }) {
   const router = useRouter();
-  const { isLoaded, user } = useUser();
+  const { user } = useUser();
   const selectedLanguage = useLanguageStore((state) => state.selectedLanguage);
   const streak = useLearningStore((state) => state.streak);
   const lesson = LESSONS.find((candidate) => candidate.id === lessonId);
@@ -87,12 +95,13 @@ export function AudioLessonScreen({ lessonId }: { lessonId?: string }) {
   } = useAudioLessonCall({ language: selectedLanguage, lesson });
 
   useEffect(() => {
-    if (!isLoaded || !user || !lesson) return;
+    if (!lesson) return;
 
-    lessonStartTimeRef.current = Date.now();
+    const startedAt = Date.now();
+    lessonStartTimeRef.current = startedAt;
     abandonedRef.current = false;
     posthog.capture("lesson_started", {
-      language: selectedLanguage ?? lesson.id.split("-")[0],
+      language: lesson.id.split("-")[0],
       lesson_id: lesson.id,
       lesson_number: LESSONS.findIndex((item) => item.id === lesson.id) + 1,
     });
@@ -104,12 +113,12 @@ export function AudioLessonScreen({ lessonId }: { lessonId?: string }) {
       posthog.capture("lesson_abandoned", {
         last_question_index: 0,
         lesson_id: lesson.id,
-        time_into_lesson_seconds: lessonStartTimeRef.current
-          ? Math.floor((Date.now() - lessonStartTimeRef.current) / 1000)
-          : 0,
+        time_into_lesson_seconds: Math.floor(
+          (Date.now() - startedAt) / 1000,
+        ),
       });
     };
-  }, [isLoaded, lesson, selectedLanguage, user]);
+  }, [lesson]);
 
   const trackExit = () => {
     if (abandonedRef.current) return;
@@ -332,28 +341,40 @@ function ConnectedLessonStage({
   const [micError, setMicError] = useState<string | null>(null);
   const [partialCaption, setPartialCaption] = useState<LiveCaption | null>(null);
   const partialTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const captionSequenceRef = useRef(new Map<string, number>());
 
   useEffect(() => {
+    const captionSequences = captionSequenceRef.current;
     const unsubscribe = call.on(
       "custom",
       (event: {
-        custom?: {
-          speaker?: "agent" | "user";
-          text?: string;
-          type?: string;
-        };
+        custom?: LiveCaptionEvent;
       }) => {
         const custom = event.custom;
-        if (custom?.type !== "transcript_partial" || !custom.text) return;
+        if (
+          (custom?.type !== "transcript_partial" &&
+            custom?.type !== "transcript_final") ||
+          (custom.speaker !== "agent" && custom.speaker !== "user") ||
+          typeof custom.text !== "string" ||
+          !custom.text.trim() ||
+          typeof custom.utterance_id !== "string" ||
+          typeof custom.sequence !== "number"
+        ) {
+          return;
+        }
+
+        const previousSequence = captionSequences.get(custom.utterance_id) ?? 0;
+        if (custom.sequence <= previousSequence) return;
+        captionSequences.set(custom.utterance_id, custom.sequence);
 
         setPartialCaption({
-          speaker: custom.speaker ?? "agent",
+          speaker: custom.speaker,
           text: custom.text,
         });
         if (partialTimerRef.current) clearTimeout(partialTimerRef.current);
         partialTimerRef.current = setTimeout(
           () => setPartialCaption(null),
-          3000,
+          custom.type === "transcript_final" ? 5_000 : 3_000,
         );
       },
     );
@@ -361,17 +382,9 @@ function ConnectedLessonStage({
     return () => {
       unsubscribe();
       if (partialTimerRef.current) clearTimeout(partialTimerRef.current);
+      captionSequences.clear();
     };
   }, [call]);
-
-  useEffect(() => {
-    if (captions.length === 0) return;
-
-    // A committed Stream caption supersedes the local streaming draft.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPartialCaption(null);
-    if (partialTimerRef.current) clearTimeout(partialTimerRef.current);
-  }, [captions]);
 
   const latestCaption = captions.at(-1);
   const visibleCaption = partialCaption ?? toLiveCaption(latestCaption);
@@ -444,11 +457,11 @@ function LessonStage({
 
   return (
     <View className="mx-2 overflow-hidden rounded-t-[24px] bg-[#C7C1C0]">
-      <View className="relative h-[338px] overflow-hidden rounded-t-[24px] bg-[#D0C8C3]">
+      <View className="relative h-[338px] overflow-hidden rounded-t-[24px] bg-[#E6DFCF]">
         <Image
-          accessibilityLabel="AI teacher preview with the Lingua fox mascot"
+          accessibilityLabel="Nataku AI teacher mascot"
           className="h-full w-full"
-          contentFit="cover"
+          contentFit="contain"
           source={images.audioLessonPreview}
         />
 
@@ -729,7 +742,11 @@ function toLiveCaption(
   if (!caption) return null;
 
   return {
-    speaker: caption.user?.id === AGENT_USER_ID ? "agent" : "user",
+    speaker:
+      caption.speaker_id === AGENT_USER_ID ||
+      caption.user?.id === AGENT_USER_ID
+        ? "agent"
+        : "user",
     text: caption.text,
   };
 }

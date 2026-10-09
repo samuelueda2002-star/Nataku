@@ -2,11 +2,11 @@ const apiOrigin = process.env.EXPO_PUBLIC_API_ORIGIN?.replace(/\/$/, "");
 
 export default {
   expo: {
-    name: "duolingo-clone",
-    slug: "duolingo-clone",
+    name: "Nataku",
+    slug: "nataku",
     version: "1.0.0",
     orientation: "portrait",
-    icon: "./assets/images/icon.png",
+    icon: "./assets/images/nataku-icon.png",
     scheme: "duolingoclone",
     userInterfaceStyle: "automatic",
     ios: {
@@ -16,23 +16,21 @@ export default {
     android: {
       package: "com.jsmastery.duolingoclone",
       adaptiveIcon: {
-        backgroundColor: "#E6F4FE",
-        foregroundImage: "./assets/images/android-icon-foreground.png",
-        backgroundImage: "./assets/images/android-icon-background.png",
-        monochromeImage: "./assets/images/android-icon-monochrome.png",
+        backgroundColor: "#E6DFCF",
+        foregroundImage: "./assets/images/nataku-icon.png",
       },
       predictiveBackGestureEnabled: false,
     },
     web: {
       output: "server",
-      favicon: "./assets/images/favicon.png",
+      favicon: "./assets/images/nataku-icon.png",
     },
     plugins: [
       apiOrigin ? ["expo-router", { origin: apiOrigin }] : "expo-router",
       [
         "expo-splash-screen",
         {
-          image: "./assets/images/splash-icon.png",
+          image: "./assets/images/nataku-mascot.png",
           imageWidth: 200,
           resizeMode: "contain",
           backgroundColor: "#ffffff",

@@ -9,21 +9,32 @@ export interface Language {
   learners: string;
 }
 
-export type ActivityType =
-  | "vocabulary"
-  | "multiple-choice"
-  | "translate"
-  | "listen"
-  | "speak";
-
-export interface Activity {
+interface ActivityBase {
   id: string;
-  type: ActivityType;
   question: string;
-  correctAnswer: string;
-  options?: string[];
   hint?: string;
 }
+
+export interface ChoiceActivity extends ActivityBase {
+  type: "multiple-choice" | "vocabulary";
+  prompt: string;
+  correctAnswer: string;
+  options: string[];
+}
+
+export interface TranslationActivity extends ActivityBase {
+  type: "translate";
+  prompt: string;
+  correctAnswer: string;
+  words: string[];
+}
+
+export interface MatchActivity extends ActivityBase {
+  type: "match";
+  pairs: { id: string; word: string; translation: string }[];
+}
+
+export type Activity = ChoiceActivity | TranslationActivity | MatchActivity;
 
 export interface VocabularyItem {
   word: string;

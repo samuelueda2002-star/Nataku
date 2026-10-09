@@ -35,11 +35,14 @@ export default function Index() {
         <View className="flex-1 items-center justify-center px-7">
           <Image
             source={images.mascotLogo}
-            className="h-40 w-40"
+            className="h-40 w-40 rounded-[32px]"
             resizeMode="contain"
           />
-          <Text className="font-poppins-semibold text-[28px] text-text-primary">
-            muolingo
+          <Text className="font-poppins-semibold text-[28px] text-[#23D56C]">
+            Nataku
+          </Text>
+          <Text className="font-poppins text-[13px] text-text-secondary">
+            English School
           </Text>
           <Link href="/onboarding" asChild>
             <TouchableOpacity className="mt-10 w-full items-center rounded-[18px] bg-[#5543F5] py-5">

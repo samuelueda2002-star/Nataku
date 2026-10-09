@@ -5,6 +5,7 @@ Run:
 """
 
 import os
+from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
@@ -14,7 +15,8 @@ from agent import INSTRUCTIONS
 from vision_agents.plugins import gemini
 from vision_agents.testing import LLMJudge, TestSession
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env.local", override=True)
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=True)
 
 
 pytestmark = [
@@ -25,7 +27,7 @@ pytestmark = [
     ),
 ]
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.8-flash"
 
 
 async def test_greeting_is_friendly():

@@ -1,11 +1,10 @@
-import audioLessonPreview from "@/assets/images/audio-lesson-preview.png";
 import earth from "@/assets/images/earth.png";
-import mascotAuth from "@/assets/images/mascot-auth.png";
-import mascotWelcome from "@/assets/images/mascot-welcome.png";
-import mascotLogo from "@/assets/images/moscot-logo.png";
+import natakuIcon from "@/assets/images/nataku-icon.png";
+import natakuMascot from "@/assets/images/nataku-mascot.png";
 import palace from "@/assets/images/palace.png";
 import streakFire from "@/assets/images/streak-fire.png";
 import treasure from "@/assets/images/treasure.png";
+import type { ImageSourcePropType } from "react-native";
 
 export const lessonImages = {
   "en-lesson-1": {
@@ -28,15 +27,28 @@ export const lessonImages = {
   },
 } as const;
 
+export function getLessonImageSource(lessonId: string): ImageSourcePropType {
+  const localOrCuratedImage =
+    lessonImages[lessonId as keyof typeof lessonImages];
+
+  return (
+    localOrCuratedImage ?? {
+      uri: `https://picsum.photos/seed/${lessonId}/1200/700`,
+    }
+  );
+}
+
 export const images = {
-  audioLessonPreview,
+  natakuMascot,
+  natakuIcon,
+  audioLessonPreview: natakuMascot,
   aiTeacher: {
     uri: "https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=240&h=240&q=80",
   },
   earth,
-  mascotAuth,
-  mascotWelcome,
-  mascotLogo,
+  mascotAuth: natakuMascot,
+  mascotWelcome: natakuMascot,
+  mascotLogo: natakuIcon,
   palace,
   lessonFallback: {
     uri: "https://picsum.photos/seed/lingua-lesson/1200/700",

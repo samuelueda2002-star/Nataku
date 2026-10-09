@@ -83,8 +83,8 @@ export async function POST(request: Request): Promise<Response> {
 
   const userName = getOptionalString(body.user?.name, 100) ?? "Learner";
   const userImage = getOptionalString(body.user?.image, 500);
-  const safeUserId = userId.replace(/[^a-zA-Z0-9_-]/g, "-");
-  const callId = `lesson-${lesson.id}-${safeUserId}-${globalThis.crypto.randomUUID()}`;
+  const safeUserId = userId.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 40);
+  const callId = `lesson-${safeUserId}-${globalThis.crypto.randomUUID().slice(0, 12)}`;
   const language = LANGUAGES.find(({ code }) => code === body.language)!;
   let serverToken: string;
   let token: string;
@@ -152,7 +152,10 @@ export async function POST(request: Request): Promise<Response> {
         body: JSON.stringify({
           data: {
             created_by_id: userId,
-            members: [{ role: "admin", user_id: userId }],
+            members: [
+              { role: "admin", user_id: userId },
+              { role: "admin", user_id: "ai-teacher" },
+            ],
             custom: {
               clerk_user_id: userId,
               user_name: userName,
@@ -160,6 +163,11 @@ export async function POST(request: Request): Promise<Response> {
               lesson_id: lesson.id,
               lesson_title: lesson.title,
               lesson_description: lesson.description,
+              lesson: {
+                id: lesson.id,
+                title: lesson.title,
+                description: lesson.description,
+              },
               language: language.code,
               language_name: language.name,
               goals: lesson.goals.map((goal) => goal.description),
@@ -180,15 +188,21 @@ export async function POST(request: Request): Promise<Response> {
               topics: lesson.aiTeacherPrompt.topics,
               system_prompt: lesson.aiTeacherPrompt.systemPrompt,
               intro_message: lesson.aiTeacherPrompt.introMessage,
+              ai_teacher_prompt: lesson.aiTeacherPrompt,
             },
             settings_override: {
               audio: {
                 default_device: "speaker",
                 mic_default_on: false,
               },
-              video: {
-                camera_default_on: false,
-                enabled: false,
+              transcription: {
+                closed_caption_mode: "available",
+                language: "auto",
+                mode: "available",
+                speech_segment_config: {
+                  max_speech_caption_ms: 5000,
+                  silence_duration_ms: 500,
+                },
               },
             },
           },

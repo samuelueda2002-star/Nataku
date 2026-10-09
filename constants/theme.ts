@@ -1,4 +1,4 @@
-// Design tokens — mirrors the Lingua design system defined in global.css.
+// Design tokens — mirrors the Nataku design system defined in global.css.
 // Use these constants with StyleSheet or runtime styles where NativeWind
 // className is not supported (see AGENTS.md Style Exception Rules).
 

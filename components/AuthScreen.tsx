@@ -17,7 +17,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import SocialButton from "./SocialButton";
 
-export type SocialStrategy = "oauth_google";
+export type SocialStrategy =
+  | "oauth_google"
+  | "oauth_facebook"
+  | "oauth_apple";
 
 interface Props {
   mode: "sign-up" | "sign-in";
@@ -43,6 +46,14 @@ function GoogleIcon() {
       <Path fill="#EA4335" d="M12 6.12c1.43 0 2.72.49 3.73 1.47l2.8-2.8A9.36 9.36 0 0 0 12 2.25a9.75 9.75 0 0 0-8.75 5.38l3.26 2.52C7.29 7.84 9.45 6.12 12 6.12Z" />
     </Svg>
   );
+}
+
+function FacebookIcon() {
+  return <Ionicons name="logo-facebook" size={25} color="#1877F2" />;
+}
+
+function AppleIcon() {
+  return <Ionicons name="logo-apple" size={25} color="#001328" />;
 }
 
 export default function AuthScreen({
@@ -91,13 +102,22 @@ export default function AuthScreen({
                 : "Continue your language journey ✨"}
             </Text>
 
-            <View className="h-[138px] items-center overflow-hidden">
+            <View className="relative h-[152px] items-center">
               <Image
                 source={images.mascotAuth}
-                className="absolute -top-8 h-[300px] w-[300px]"
                 resizeMode="contain"
-                style={{ transform: [{ scaleX: -1 }] }}
+                className="h-[144px] w-[144px]"
+                accessibilityLabel="Nataku mascot"
               />
+              <Text className="absolute left-[62px] top-[42px] font-poppins text-[22px] text-[#FF9200]">
+                ✦
+              </Text>
+              <Text className="absolute right-[63px] top-[49px] font-poppins text-[20px] text-[#6BAEFF]">
+                ✦
+              </Text>
+              <Text className="absolute right-[76px] top-[89px] font-poppins text-[22px] text-[#F8CD3D]">
+                ✦
+              </Text>
             </View>
 
             <View className="h-[80px] justify-center rounded-[17px] border border-[#E3E8F2] px-[17px]">
@@ -216,6 +236,16 @@ export default function AuthScreen({
                 icon={<GoogleIcon />}
                 label="Continue with Google"
                 onPress={() => onSocialPress("oauth_google")}
+              />
+              <SocialButton
+                icon={<FacebookIcon />}
+                label="Continue with Facebook"
+                onPress={() => onSocialPress("oauth_facebook")}
+              />
+              <SocialButton
+                icon={<AppleIcon />}
+                label="Continue with Apple"
+                onPress={() => onSocialPress("oauth_apple")}
               />
             </View>
 

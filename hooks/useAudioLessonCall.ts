@@ -5,10 +5,13 @@ import {
 } from "@stream-io/video-react-native-sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { getApiUrl } from "@/lib/api";
 import { Lesson, LanguageCode } from "@/types/learning";
 
 const AGENT_USER_ID = "ai-teacher";
 const AGENT_CONNECTION_TIMEOUT_MS = 20_000;
+const AUTH_TOKEN_TIMEOUT_MS = 10_000;
+const CALL_SETUP_TIMEOUT_MS = 15_000;
 
 export type AudioCallStatus =
   | "idle"
@@ -78,23 +81,41 @@ export function useAudioLessonCall({
   const operationIdRef = useRef(0);
   const agentAttemptIdRef = useRef(0);
 
+  const getAuthenticatedToken = useCallback(async (): Promise<string | null> => {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("Your sign-in session could not be refreshed")),
+          AUTH_TOKEN_TIMEOUT_MS,
+        );
+      });
+      return await Promise.race([getToken(), timeoutPromise]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }, [getToken]);
+
   const stopAgentSession = useCallback(
     async (callId: string | null, sessionId: string | null) => {
       const clerkToken =
-        (await getToken().catch(() => null)) ?? clerkTokenRef.current;
+        clerkTokenRef.current ??
+        (await getAuthenticatedToken().catch(() => null));
       if (!callId || !sessionId || !clerkToken) {
         return;
       }
 
       await fetch(
-        `/api/agent-session?callId=${encodeURIComponent(callId)}&sessionId=${encodeURIComponent(sessionId)}`,
+        getApiUrl(
+          `/api/agent-session?callId=${encodeURIComponent(callId)}&sessionId=${encodeURIComponent(sessionId)}`,
+        ),
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${clerkToken}` },
         },
       ).catch(() => undefined);
     },
-    [getToken],
+    [getAuthenticatedToken],
   );
 
   const disposeResources = useCallback(
@@ -102,6 +123,7 @@ export function useAudioLessonCall({
       const currentCall = callRef.current;
       const currentClient = clientRef.current;
       const sessionId = agentSessionRef.current;
+      const callId = currentCall?.id ?? activeCallIdRef.current;
 
       callEndedUnsubscribeRef.current?.();
       callEndedUnsubscribeRef.current = null;
@@ -121,7 +143,7 @@ export function useAudioLessonCall({
       activeCallTypeRef.current = null;
       agentAttemptIdRef.current += 1;
 
-      await stopAgentSession(currentCall?.id ?? null, sessionId);
+      await stopAgentSession(callId, sessionId);
 
       let endError: unknown;
       if (endForEveryone && currentCall) {
@@ -141,14 +163,19 @@ export function useAudioLessonCall({
     },
     [stopAgentSession],
   );
+  const disposeResourcesRef = useRef(disposeResources);
+
+  useEffect(() => {
+    disposeResourcesRef.current = disposeResources;
+  }, [disposeResources]);
 
   const fetchStreamToken = useCallback(async (): Promise<string> => {
-    const clerkToken = await getToken();
+    const clerkToken = await getAuthenticatedToken();
     if (!clerkToken) {
       throw new Error("Please sign in again to continue this lesson");
     }
 
-    const response = await fetch("/api/stream-token", {
+    const response = await fetch(getApiUrl("/api/stream-token"), {
       headers: { Authorization: `Bearer ${clerkToken}` },
     });
 
@@ -164,7 +191,7 @@ export function useAudioLessonCall({
     }
 
     return refreshed.token;
-  }, [getToken, user]);
+  }, [getAuthenticatedToken, user]);
 
   const startAgentSession = useCallback(
     async (callId: string, callType: string, clerkToken: string) => {
@@ -189,7 +216,7 @@ export function useAudioLessonCall({
       }, AGENT_CONNECTION_TIMEOUT_MS);
 
       try {
-        const response = await fetch("/api/agent-session", {
+        const response = await fetch(getApiUrl("/api/agent-session"), {
           method: "POST",
           headers: {
             Authorization: `Bearer ${clerkToken}`,
@@ -268,7 +295,7 @@ export function useAudioLessonCall({
     setCallStatus("loading");
 
     try {
-      const clerkToken = await getToken();
+      const clerkToken = await getAuthenticatedToken();
       if (!clerkToken) {
         throw new Error("Please sign in again to start this lesson");
       }
@@ -276,22 +303,41 @@ export function useAudioLessonCall({
 
       clerkTokenRef.current = clerkToken;
 
-      const response = await fetch("/api/stream-call", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${clerkToken}`,
-          "Content-Type": "application/json",
-        },
-        signal: requestController.signal,
-        body: JSON.stringify({
-          lessonId: lesson.id,
-          language,
-          user: {
-            image: user.imageUrl,
-            name: user.fullName ?? user.firstName ?? "Learner",
+      const setupTimeout = setTimeout(
+        () => requestController.abort(),
+        CALL_SETUP_TIMEOUT_MS,
+      );
+
+      let response: Response;
+      try {
+        response = await fetch(getApiUrl("/api/stream-call"), {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${clerkToken}`,
+            "Content-Type": "application/json",
           },
-        }),
-      });
+          signal: requestController.signal,
+          body: JSON.stringify({
+            lessonId: lesson.id,
+            language,
+            user: {
+              image: user.imageUrl,
+              name: user.fullName ?? user.firstName ?? "Learner",
+            },
+          }),
+        });
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.name === "AbortError" &&
+          isCurrentOperation()
+        ) {
+          throw new Error("The audio call service took too long to respond");
+        }
+        throw error;
+      } finally {
+        clearTimeout(setupTimeout);
+      }
 
       if (!response.ok) {
         throw new Error(
@@ -383,9 +429,21 @@ export function useAudioLessonCall({
       setCall(streamCall);
       setCallStatus("joined");
 
-      await streamCall.startClosedCaptions().catch((error) => {
-        console.warn("[audio-lesson] Closed captions unavailable:", error);
+      streamCall.updateClosedCaptionSettings({
+        maxVisibleCaptions: 2,
+        visibilityDurationMs: 5_000,
       });
+      void streamCall
+        .startClosedCaptions({
+          language: "auto",
+          speech_segment_config: {
+            max_speech_caption_ms: 5_000,
+            silence_duration_ms: 500,
+          },
+        })
+        .catch((error) => {
+          console.warn("[audio-lesson] Closed captions unavailable:", error);
+        });
       void startAgentSession(setup.callId, setup.callType, clerkToken);
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
@@ -411,7 +469,7 @@ export function useAudioLessonCall({
   }, [
     disposeResources,
     fetchStreamToken,
-    getToken,
+    getAuthenticatedToken,
     language,
     lesson,
     startAgentSession,
@@ -420,7 +478,7 @@ export function useAudioLessonCall({
 
   const retryAgent = useCallback(async () => {
     const currentCall = callRef.current;
-    const clerkToken = await getToken();
+    const clerkToken = await getAuthenticatedToken();
 
     if (!currentCall || !clerkToken) {
       setAgentStatus("failed");
@@ -441,7 +499,7 @@ export function useAudioLessonCall({
       activeCallTypeRef.current ?? currentCall.type,
       clerkToken,
     );
-  }, [getToken, startAgentSession, stopAgentSession]);
+  }, [getAuthenticatedToken, startAgentSession, stopAgentSession]);
 
   const endCall = useCallback(async () => {
     if (inFlightRef.current || callStatus !== "joined") {
@@ -489,9 +547,9 @@ export function useAudioLessonCall({
       inFlightRef.current = false;
       requestControllerRef.current?.abort();
       requestControllerRef.current = null;
-      void disposeResources(true).catch(() => undefined);
+      void disposeResourcesRef.current(true).catch(() => undefined);
     };
-  }, [disposeResources]);
+  }, []);
 
   return {
     agentStatus,
